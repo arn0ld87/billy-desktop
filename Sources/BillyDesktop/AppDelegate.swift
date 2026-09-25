@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var chatHistory: [ChatTurn] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installMainMenu()
         guard let sprites = SpriteLibrary.loadPreferred() else {
             let alert = NSAlert()
             alert.messageText = "Billys Bilder fehlen"
@@ -55,9 +56,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let chat = chatPanel.frame
         let petVisible = pet?.window.isVisible ?? false
         let chatOK = chatPanel.isVisible && chat.width >= 200 && chat.height >= 60
+        let pasteOK = handlesKeyEquivalent("v")
         print("SELFTEST pet.visible=\(petVisible) chat.visible=\(chatPanel.isVisible) chat.frame=\(chat) "
-              + "hotkey.registered=\(hotKey?.isRegistered ?? false)")
-        exit(petVisible && chatOK ? 0 : 1)
+              + "hotkey.registered=\(hotKey?.isRegistered ?? false) paste.shortcut=\(pasteOK)")
+        exit(petVisible && chatOK && pasteOK ? 0 : 1)
+    }
+
+    /// Würde ⌘+Taste über das Hauptmenü an ein Textfeld weitergereicht?
+    private func handlesKeyEquivalent(_ key: String) -> Bool {
+        guard let menu = NSApp.mainMenu else { return false }
+        return menu.items.contains { item in
+            item.submenu?.items.contains { $0.keyEquivalent == key && $0.keyEquivalentModifierMask == .command } ?? false
+        }
+    }
+
+    /// Menüleisten-Apps haben kein Hauptmenü – ohne „Bearbeiten“-Menü laufen ⌘V/⌘C/⌘X/⌘A ins Leere.
+    /// Das Menü ist unsichtbar, liefert Textfeldern (Schlüssel-Dialog, Chat) aber die Tastenkürzel.
+    private func installMainMenu() {
+        let main = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Billy Desktop beenden", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+        main.addItem(appItem)
+
+        let editItem = NSMenuItem()
+        let edit = NSMenu(title: "Bearbeiten")
+        edit.addItem(withTitle: "Widerrufen", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: "Wiederholen", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Ausschneiden", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Kopieren", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Einsetzen", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Alles auswählen", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = edit
+        main.addItem(editItem)
+        NSApp.mainMenu = main
     }
 
     // MARK: Menü

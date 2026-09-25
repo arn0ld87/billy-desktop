@@ -35,7 +35,7 @@ enum AIProvider: String, CaseIterable {
 
     var keyPlaceholder: String {
         switch self {
-        case .gemini: return "AIza…"
+        case .gemini: return "AIza… oder AQ.…"
         case .claude: return "sk-ant-…"
         }
     }
