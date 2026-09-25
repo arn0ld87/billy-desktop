@@ -31,9 +31,9 @@ DEFAULT_OUT = Path.home() / "Library" / "Application Support" / "Billy Desktop" 
 POSES = ["stand", "walk", "carry", "sit", "happy", "bark", "lie", "sleep", "sniff"]
 # Zielbox (Breite, Höhe) in Pixeln je Posen-Typ – das Bild wird proportional hineingepasst.
 BOX = {
-    "stand": (250, 200), "walk": (250, 200), "carry": (250, 200), "sniff": (250, 190),
-    "sit": (200, 205), "happy": (200, 205), "bark": (200, 205),
-    "lie": (290, 130), "sleep": (290, 120),
+    "stand": (300, 188), "walk": (300, 188), "carry": (300, 188), "sniff": (275, 185),
+    "sit": (220, 182), "happy": (220, 182), "bark": (220, 182),
+    "lie": (285, 125), "sleep": (255, 108),
 }
 FILE_RE = re.compile(r"^(?P<pose>[a-z]+)(?:[_-](?P<index>\d+))?\.(png|jpe?g|webp)$", re.I)
 

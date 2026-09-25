@@ -340,9 +340,17 @@ final class PetController: NSObject, PetViewDelegate {
     private func render() {
         let frames = sprites.frames(animation)
         guard !frames.isEmpty else { return }
-        let raw = Int(animClock * animation.fps)
-        let index = animation.isOneShot || transition != nil ? min(raw, frames.count - 1) : raw % frames.count
-        view.setFrame(frames[index], animation: animation)
+        if animation.isOneShot || transition != nil {
+            let index = min(Int(animClock * animation.fps), frames.count - 1)
+            view.setFrame(frames[index], animation: animation)
+        } else {
+            let phase = animClock / animation.cycleSeconds * Double(frames.count)
+            let index = Int(phase) % frames.count
+            // Foto-Sets haben wenige Bilder: am Ende jedes Bildes ins nächste überblenden
+            let fraction = phase - floor(phase)
+            let blend = sprites.needsProceduralBob && frames.count > 1 ? max(0, (fraction - 0.55) / 0.45) : 0
+            view.setFrame(frames[index], next: frames[(index + 1) % frames.count], blend: CGFloat(blend), animation: animation)
+        }
         view.needsDisplay = true
     }
 

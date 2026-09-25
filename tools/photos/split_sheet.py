@@ -59,8 +59,12 @@ def main() -> int:
     args = parser.parse_args()
 
     names = [n.strip() for n in args.names.split(",") if n.strip()]
-    img = Image.open(args.sheet).convert("RGB")
-    cut = rembg_cutout(img)
+    img = Image.open(args.sheet)
+    rgba = np.array(img.convert("RGBA")).astype(np.float32)
+    if np.median(np.concatenate([rgba[0, :, 3], rgba[-1, :, 3], rgba[:, 0, 3], rgba[:, -1, 3]])) < 10:
+        cut = rgba                      # schon transparent – Maske direkt übernehmen
+    else:
+        cut = rembg_cutout(img)
     if cut is None:
         print("Bitte zuerst installieren: pip install 'rembg[cpu]'", file=sys.stderr)
         return 1

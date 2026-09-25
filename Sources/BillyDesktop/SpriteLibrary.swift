@@ -24,6 +24,20 @@ enum Animation: String, CaseIterable {
         }
     }
 
+    /// Dauer eines Schleifendurchlaufs – unabhängig davon, wie viele Bilder ein Set hat
+    /// (Foto-Sets mit 4 Laufbildern laufen so genauso schnell wie die Zeichnung mit 12).
+    var cycleSeconds: Double {
+        switch self {
+        case .walk, .carry, .sniff: return 1.0
+        case .run: return 0.57
+        case .stand, .sit, .sleep: return 4.0
+        case .happy, .hop: return 0.8
+        case .bark, .dangle: return 0.67
+        case .lie: return 2.67
+        default: return 1.0
+        }
+    }
+
     /// Einmalige Animationen (danach geht es weiter), alle anderen laufen in Schleife.
     var isOneShot: Bool {
         switch self {

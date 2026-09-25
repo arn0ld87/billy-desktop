@@ -76,8 +76,13 @@ final class PetView: NSView {
         CGSize(width: max(frameSize.width * scale, minWidth), height: frameSize.height * scale + bubbleArea)
     }
 
-    func setFrame(_ frame: SpriteFrame, animation: Animation) {
+    private var nextFrame: SpriteFrame?
+    private var frameBlend: CGFloat = 0
+
+    func setFrame(_ frame: SpriteFrame, next: SpriteFrame? = nil, blend: CGFloat = 0, animation: Animation) {
         spriteFrame = frame
+        nextFrame = next
+        frameBlend = blend
         self.animation = animation
     }
 
@@ -196,6 +201,9 @@ final class PetView: NSView {
         } else {
             fadeFrom = nil
             drawDog(frame, facingLeft: facingLeft, lift: currentLift, alpha: 1)
+            if let next = nextFrame, frameBlend > 0.01 {
+                drawDog(next, facingLeft: facingLeft, lift: currentLift, alpha: frameBlend)
+            }
         }
 
         if let icon = carriedIcon {
