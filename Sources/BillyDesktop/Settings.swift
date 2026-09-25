@@ -12,6 +12,7 @@ final class Settings {
             "alwaysOnTop": true,
             "autonomous": true,
             "claudeModel": "claude-opus-5",
+            "geminiModel": "gemini-3.5-flash-lite",
             "skin": "auto",
         ])
     }
@@ -32,6 +33,11 @@ final class Settings {
     }
 
     /// Modell für den optionalen Claude-Chat (z. B. per `defaults write` änderbar).
+    /// Gemini-Modell (Standard: 3.5 Flash-Lite – günstig und aktuell).
+    var geminiModel: String {
+        defaults.string(forKey: "geminiModel") ?? "gemini-3.5-flash-lite"
+    }
+
     var claudeModel: String {
         defaults.string(forKey: "claudeModel") ?? "claude-opus-5"
     }

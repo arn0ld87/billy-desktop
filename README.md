@@ -15,7 +15,7 @@ jeder Datei, trägt sie im Maul zum passenden Ordner und legt sie dort ab.
 | Kraulen / Tragen | Billy anklicken bzw. mit der Maus ziehen |
 | Echte Fotos statt Zeichnung | PNGs nach `photos/` → `make photos-bundle` · [docs/BILLY-FOTOS.md](docs/BILLY-FOTOS.md) |
 | Animationen | laufen, Galopp (Zoomies), sitzen/hinlegen mit Übergängen, strecken & gähnen, Kopf schief legen, Datei aufnehmen/ablegen, zappeln beim Hochheben |
-| Freie Fragen (optional) | Menü → *Claude-Chat einrichten …* (Anthropic-API-Schlüssel) |
+| Freie Fragen (optional) | Menü → *KI-Chat* → Gemini- oder Claude-Schlüssel hinterlegen |
 
 ## Installation
 
@@ -70,16 +70,23 @@ jeder Datei, trägt sie im Maul zum passenden Ordner und legt sie dort ab.
 - Rückgängig stellt den letzten Aufräumvorgang wieder her (`~/Library/Application Support/Billy Desktop/last-tidy.json`)
   und entfernt dabei nur leere Ordner, die Billy selbst angelegt hat.
 
-## Claude-Chat (optional)
+## KI-Chat (optional): Gemini oder Claude
 
-Ohne API-Schlüssel versteht Billy alle Kommandos oben, lokal und ohne Netz. Mit Schlüssel
-(Menü → *Claude-Chat einrichten …*, gespeichert im macOS-Schlüsselbund) beantwortet er freie Fragen über die
-Claude Messages API. Claude kann dabei höchstens eine Aktion aus einer festen Liste vorschlagen,
-Aufräumen fragt trotzdem immer nach.
+Ohne API-Schlüssel versteht Billy alle Kommandos oben, lokal und ohne Netz. Mit Schlüssel beantwortet er
+auch freie Fragen. Die KI kann dabei höchstens eine Aktion aus einer festen Liste vorschlagen,
+Aufräumen fragt trotzdem immer nach. Schlüssel liegen nur im macOS-Schlüsselbund.
+
+| Anbieter | Standardmodell | Schlüssel |
+|---|---|---|
+| **Gemini** (Vorrang, wenn beide gesetzt) | `gemini-3.5-flash-lite` – günstig, schnell, aktuell | kostenlos in Google AI Studio: aistudio.google.com/apikey |
+| Claude | `claude-opus-5` | platform.claude.com |
+
+Einrichten: Menüleiste 🐾 → *KI-Chat* → *Gemini-Schlüssel hinterlegen …*
 
 ```bash
-# anderes Modell verwenden (Standard: claude-opus-5)
-defaults write de.arn0ld87.billy-desktop claudeModel claude-sonnet-5
+# anderes Gemini-Modell, z. B. das stärkere 3.5 Flash oder das langfristig stabile 3.1 Flash-Lite
+defaults write de.arn0ld87.billy-desktop geminiModel gemini-3.5-flash
+defaults write de.arn0ld87.billy-desktop geminiModel gemini-3.1-flash-lite
 ```
 
 ## Entwicklung
@@ -104,5 +111,5 @@ make photos PHOTOS=~/Pictures/Billy-Fotos   # eigene Fotos importieren
 ## Nächste Schritte
 
 1. Echte Billy-Fotos mit ChatGPT erzeugen und importieren → [docs/BILLY-FOTOS.md](docs/BILLY-FOTOS.md)
-2. Optional einen Claude-Schlüssel hinterlegen, damit Billy frei plaudert
+2. Optional einen Gemini-Schlüssel (kostenlos) hinterlegen, damit Billy frei plaudert
 3. `make install` nach jedem `git pull` erneut ausführen
