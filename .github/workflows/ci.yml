@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift-Version
+        run: swift --version
+
+      - name: Build
+        run: swift build
+
+      - name: Tests
+        run: swift test
+
+      - name: App bauen
+        run: ./scripts/build-app.sh
+
+      - name: App packen
+        run: ditto -c -k --keepParent "build/Billy Desktop.app" build/Billy-Desktop.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Billy-Desktop
+          path: build/Billy-Desktop.zip
+
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r tools/requirements.txt
+      - name: Sprites sind reproduzierbar
+        run: |
+          python3 tools/sprites/generate_sprites.py
+          python3 - <<'PY'
+          import json, pathlib
+          meta = json.loads(pathlib.Path("Resources/Sprites/sprites.json").read_text())
+          assert "stand" in meta["animations"] and "walk" in meta["animations"]
+          PY
+          git diff --stat --exit-code -- Resources/Sprites/sprites.json

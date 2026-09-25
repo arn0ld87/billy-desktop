@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>de</string>
+	<key>CFBundleDisplayName</key>
+	<string>Billy Desktop</string>
+	<key>CFBundleExecutable</key>
+	<string>BillyDesktop</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>de.arn0ld87.billy-desktop</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Billy Desktop</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.entertainment</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Billy fragt den Finder, wo deine Schreibtisch-Symbole liegen, damit er zu den richtigen Dateien laufen kann.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Billy sortiert auf deinen Wunsch Dateien vom Schreibtisch in Ordner. Es wird nichts gelöscht.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Billy ist ein guter Junge.</string>
+</dict>
+</plist>
