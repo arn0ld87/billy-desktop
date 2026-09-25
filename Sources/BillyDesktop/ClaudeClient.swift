@@ -5,12 +5,7 @@ import BillyCore
 ///
 /// Claude darf Billy nichts direkt tun lassen: Es antwortet mit Text und schlägt höchstens eine
 /// Aktion aus einer festen Liste vor (Tool `billy_action`). Aufräumen fragt trotzdem immer nach.
-struct ClaudeClient {
-    struct Reply {
-        let text: String
-        let command: BillyCommand?
-    }
-
+struct ClaudeClient: ChatProvider {
     enum ClientError: LocalizedError {
         case http(Int, String)
         case refused
@@ -25,25 +20,10 @@ struct ClaudeClient {
         }
     }
 
-    struct Turn {
-        let role: String   // "user" | "assistant"
-        let text: String
-    }
-
     let apiKey: String
     let model: String
 
-    static let systemPrompt = """
-    Du bist Billy, ein fröhlicher, verspielter Podenco-Mischling (weiß mit hellbraunen Flecken, \
-    riesige Ohren), der als Desktop-Begleiter auf dem Mac deines Menschen lebt. Du antwortest immer \
-    auf Deutsch, in der Ich-Form, kurz (höchstens zwei Sätze, passt in eine Sprechblase), herzlich \
-    und mit gelegentlichem „Wuff“ oder Hunde-Emoji. Wenn dein Mensch möchte, dass du etwas tust, \
-    rufe das Tool billy_action mit der passenden Aktion auf und sag zusätzlich einen kurzen Satz dazu. \
-    tidyDesktop = Dateien vom Schreibtisch in Ordner sortieren, undoTidy = das rückgängig machen. \
-    Erfinde keine Fähigkeiten, die es nicht gibt.
-    """
-
-    func send(history: [Turn]) async throws -> Reply {
+    func send(history: [ChatTurn]) async throws -> ChatReply {
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 60
@@ -69,11 +49,11 @@ struct ClaudeClient {
             "strict": true,
             "input_schema": inputSchema,
         ]
-        let messages: [[String: String]] = history.map { ["role": $0.role, "content": $0.text] }
+        let messages: [[String: String]] = history.map { ["role": $0.role.rawValue, "content": $0.text] }
         var body: [String: Any] = [
             "model": model,
             "max_tokens": 2048,
-            "system": Self.systemPrompt,
+            "system": BillyPersona.systemPrompt + " Für Aktionen nutzt du das Tool billy_action.",
             "tools": [tool],
             "messages": messages,
         ]
@@ -114,6 +94,6 @@ struct ClaudeClient {
             }
         }
         let text = texts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        return Reply(text: text, command: command)
+        return ChatReply(text: text, command: command)
     }
 }

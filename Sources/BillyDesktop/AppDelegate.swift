@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let chatModel = ChatModel()
     private lazy var chatPanel = ChatPanel(model: chatModel)
     private var hotKey: HotKey?
-    private var chatHistory: [ClaudeClient.Turn] = []
+    private var chatHistory: [ChatTurn] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let sprites = SpriteLibrary.loadPreferred() else {
@@ -141,8 +141,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
-        let claudeTitle = KeychainStore.apiKey == nil ? "Claude-Chat einrichten …" : "Claude-Schlüssel ändern …"
-        menu.addItem(ActionItem(claudeTitle) { [weak self] in self?.configureClaude() })
+        let aiMenu = NSMenu()
+        let active = AIProvider.active
+        let status = NSMenuItem(title: active.map { "Aktiv: \($0.title) (\($0.model))" } ?? "Kein KI-Schlüssel – nur Kommandos",
+                                action: nil, keyEquivalent: "")
+        status.isEnabled = false
+        aiMenu.addItem(status)
+        aiMenu.addItem(.separator())
+        for provider in AIProvider.allCases {
+            let title = provider.apiKey == nil ? "\(provider.title)-Schlüssel hinterlegen …" : "\(provider.title)-Schlüssel ändern …"
+            aiMenu.addItem(ActionItem(title) { [weak self] in self?.configureAI(provider) })
+        }
+        let aiItem = NSMenuItem(title: "KI-Chat", action: nil, keyEquivalent: "")
+        aiItem.submenu = aiMenu
+        menu.addItem(aiItem)
         menu.addItem(.separator())
 
         let visible = pet?.window.isVisible ?? true
@@ -176,16 +188,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func configureClaude() {
+    private func configureAI(_ provider: AIProvider) {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "Claude-Chat für Billy"
+        alert.messageText = "\(provider.title)-Chat für Billy"
         alert.informativeText = """
-        Optional: Mit einem Anthropic-API-Schlüssel versteht Billy auch freie Fragen. \
+        Optional: Mit einem \(provider.title)-API-Schlüssel versteht Billy auch freie Fragen \
+        (Modell: \(provider.model)). \(provider.keyHelp)
+
         Der Schlüssel liegt nur im Schlüsselbund dieses Macs. Befehle wie „Räum auf“ funktionieren auch ohne.
         """
         let field = NSSecureTextField(frame: CGRect(x: 0, y: 0, width: 320, height: 24))
-        field.placeholderString = "sk-ant-…"
+        field.placeholderString = provider.keyPlaceholder
         alert.accessoryView = field
         alert.addButton(withTitle: "Speichern")
         alert.addButton(withTitle: "Abbrechen")
@@ -195,10 +209,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .alertFirstButtonReturn:
             let key = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty else { return }
-            pet?.say(KeychainStore.save(key) ? "Jetzt kann ich richtig quatschen! 💬" : "Speichern hat nicht geklappt.")
+            let saved = KeychainStore.save(key, account: provider.keychainAccount)
+            chatHistory.removeAll()
+            pet?.say(saved ? "Jetzt kann ich richtig quatschen! 💬" : "Speichern hat nicht geklappt.")
         case .alertThirdButtonReturn:
-            KeychainStore.delete()
-            pet?.say("Schlüssel gelöscht.")
+            KeychainStore.delete(account: provider.keychainAccount)
+            chatHistory.removeAll()
+            pet?.say("\(provider.title)-Schlüssel gelöscht.")
         default:
             break
         }
@@ -223,17 +240,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if command == .tidyDesktop || command == .undoTidy { chatPanel.orderOut(nil) }
             return
         }
-        guard let key = KeychainStore.apiKey else {
+        guard let client = AIProvider.active?.makeClient() else {
             let answer = BillyReplies.notUnderstood.randomElement()!
             chatModel.reply = answer
             pet?.say(answer)
             return
         }
-        chatHistory.append(.init(role: "user", text: text))
+        chatHistory.append(ChatTurn(role: .user, text: text))
         chatHistory = Array(chatHistory.suffix(12))
-        if chatHistory.first?.role == "assistant" { chatHistory.removeFirst() }
+        if chatHistory.first?.role == .assistant { chatHistory.removeFirst() }
         chatModel.isThinking = true
-        let client = ClaudeClient(apiKey: key, model: Settings.shared.claudeModel)
         let history = chatHistory
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -241,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             do {
                 let reply = try await client.send(history: history)
                 let text = reply.text.isEmpty ? reply.command.map(BillyReplies.random(for:)) ?? "Wuff!" : reply.text
-                self.chatHistory.append(.init(role: "assistant", text: text))
+                self.chatHistory.append(ChatTurn(role: .assistant, text: text))
                 self.chatModel.reply = text
                 self.pet?.say(text)
                 if let command = reply.command {

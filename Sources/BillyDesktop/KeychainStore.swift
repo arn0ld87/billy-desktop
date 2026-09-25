@@ -1,12 +1,11 @@
 import Foundation
 import Security
 
-/// Speichert den optionalen Anthropic-API-Schlüssel im macOS-Schlüsselbund.
+/// Speichert optionale KI-Schlüssel (Gemini, Claude) im macOS-Schlüsselbund.
 enum KeychainStore {
     private static let service = "Billy Desktop"
-    private static let account = "anthropic-api-key"
 
-    static func load() -> String? {
+    static func load(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -21,8 +20,8 @@ enum KeychainStore {
     }
 
     @discardableResult
-    static func save(_ key: String) -> Bool {
-        delete()
+    static func save(_ key: String, account: String) -> Bool {
+        delete(account: account)
         let attributes: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -33,19 +32,12 @@ enum KeychainStore {
         return SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
     }
 
-    static func delete() {
+    static func delete(account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
         SecItemDelete(query as CFDictionary)
-    }
-
-    /// Schlüssel aus dem Schlüsselbund oder – für Entwickler – aus ANTHROPIC_API_KEY.
-    static var apiKey: String? {
-        if let key = load(), !key.isEmpty { return key }
-        if let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !env.isEmpty { return env }
-        return nil
     }
 }
