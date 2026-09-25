@@ -38,6 +38,34 @@ BOX = {
 FILE_RE = re.compile(r"^(?P<pose>[a-z]+)(?:[_-](?P<index>\d+))?\.(png|jpe?g|webp)$", re.I)
 
 
+_REMBG_SESSION = None
+
+
+def rembg_cutout(img: Image.Image):
+    """KI-Freistellung (rembg/ISNet), falls installiert – klappt auch bei weißem Hund auf Weiß."""
+    global _REMBG_SESSION
+    try:
+        from rembg import new_session, remove
+    except ImportError:
+        return None
+    if _REMBG_SESSION is None:
+        _REMBG_SESSION = new_session("isnet-general-use")
+    rgb = img.convert("RGB")
+    mask = np.array(remove(rgb, session=_REMBG_SESSION, only_mask=True)).astype(np.float32)
+    rgba = np.dstack([np.array(rgb).astype(np.float32), mask])   # Farben vom Original, Maske von der KI
+    return solidify(rgba)
+
+
+def solidify(rgba: np.ndarray) -> np.ndarray:
+    """Weißes Fell vor weißem Hintergrund wird teils halbtransparent: Inneres voll deckend machen,
+    nur ein schmaler Rand bleibt weich."""
+    alpha = rgba[..., 3]
+    solid = ndimage.binary_fill_holes(ndimage.binary_closing(alpha > 60, iterations=2))
+    core = ndimage.binary_erosion(solid, iterations=3)
+    rgba[..., 3] = np.where(core, 255, np.where(solid, np.maximum(alpha, 160), alpha * 0.6))
+    return rgba
+
+
 def remove_background(img: Image.Image) -> np.ndarray:
     """Liefert RGBA-Array mit freigestelltem Hund."""
     rgba = np.array(img.convert("RGBA")).astype(np.float32)
@@ -56,8 +84,10 @@ def remove_background(img: Image.Image) -> np.ndarray:
         a = np.clip((90 - excess) / 60, 0, 1) * 255
         spill = np.clip(excess, 0, None)
         rgba[..., 1] = g - spill * 0.9
+    elif (cut := rembg_cutout(img)) is not None:
+        return cut
     else:
-        # Einfarbiger Hintergrund: von den Rändern aus flutfüllen.
+        # Einfarbiger Hintergrund ohne rembg: von den Rändern aus flutfüllen.
         dist = np.sqrt(((rgb - bg) ** 2).sum(axis=-1))
         similar = dist < 38
         labels, _ = ndimage.label(similar)
@@ -66,7 +96,7 @@ def remove_background(img: Image.Image) -> np.ndarray:
         a = np.where(background, 0, 255).astype(np.float32)
         a = ndimage.gaussian_filter(a, 0.8)
         if (bg > 225).all():
-            print("  Hinweis: weißer Hintergrund bei einem weißen Hund ist heikel – besser Greenscreen #00FF00.")
+            print("  Hinweis: weißer Hintergrund bei weißem Hund – besser `pip install rembg` oder Greenscreen #00FF00.")
     rgba[..., 3] = a
     return rgba
 
@@ -90,17 +120,31 @@ def trim(rgba: np.ndarray) -> Image.Image:
     return Image.fromarray(np.clip(crop, 0, 255).astype(np.uint8), "RGBA")
 
 
-def place(dog: Image.Image, pose: str) -> Image.Image:
+def fit_scale(dog: Image.Image, pose: str) -> float:
     bw, bh = BOX[pose]
-    s = min(bw / dog.width, bh / dog.height, (W - 8) / dog.width, (GROUND - 4) / dog.height)
-    dog = dog.convert("RGBa").resize((max(1, round(dog.width * s)), max(1, round(dog.height * s))), Image.LANCZOS).convert("RGBA")
+    return min(bw / dog.width, bh / dog.height, (W - 8) / dog.width, (GROUND - 4) / dog.height)
+
+
+def body_center_x(dog: Image.Image) -> float:
+    """Mitte des Rumpfs (obere 55 %) – ruhiger als die Bildmitte, wenn die Beine schwingen."""
+    a = np.array(dog)[..., 3] > 128
+    top = a[: max(1, int(a.shape[0] * 0.55))]
+    xs = np.nonzero(top)[1]
+    return float(xs.mean()) if len(xs) else dog.width / 2
+
+
+def place(dog: Image.Image, scale: float) -> Image.Image:
+    size = (max(1, round(dog.width * scale)), max(1, round(dog.height * scale)))
+    dog = dog.convert("RGBa").resize(size, Image.LANCZOS).convert("RGBA")
     frame = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     # weicher Bodenschatten
     shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     cx = W // 2
     ImageDraw.Draw(shadow).ellipse((cx - dog.width * 0.42, GROUND - 7, cx + dog.width * 0.42, GROUND + 7), fill=(0, 0, 0, 40))
     frame.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(3)))
-    frame.alpha_composite(dog, (cx - dog.width // 2, GROUND - dog.height))
+    x = round(cx - body_center_x(dog))
+    x = min(max(x, 2), W - dog.width - 2) if dog.width < W - 4 else (W - dog.width) // 2
+    frame.alpha_composite(dog, (x, GROUND - dog.height))
     return frame
 
 
@@ -148,12 +192,19 @@ def main() -> int:
 
     meta = {"frameSize": [W // 2, H // 2], "scale": 2, "groundY": GROUND / 2, "animations": {}}
     for pose in POSES:
-        for i, path in enumerate(poses.get(pose, [])):
+        dogs = []
+        for path in poses.get(pose, []):
             print(f"{path.name} → {pose}")
             img = Image.open(path)
             if path.name in args.flip:
                 img = img.transpose(Image.FLIP_LEFT_RIGHT)
-            frame = place(trim(keep_largest(remove_background(img))), pose)
+            dogs.append(trim(keep_largest(remove_background(img))))
+        if not dogs:
+            continue
+        # eine gemeinsame Skalierung pro Pose, damit Billy zwischen Laufbildern nicht pumpt
+        scale = float(np.median([fit_scale(d, pose) for d in dogs]))
+        for i, dog in enumerate(dogs):
+            frame = place(dog, min(scale, fit_scale(dog, pose) * 1.08))
             name = f"{pose}_{i:02d}.png"
             frame.save(out / name, optimize=True)
             meta["animations"].setdefault(pose, []).append({"file": name, "anchors": anchors(frame)})

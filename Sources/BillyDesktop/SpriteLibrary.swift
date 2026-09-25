@@ -1,28 +1,59 @@
 import AppKit
 
+/// Grundhaltung – zwischen Haltungen spielt Billy Übergangsanimationen.
+enum Posture {
+    case stand, sit, lie
+}
+
 enum Animation: String, CaseIterable {
-    case walk, carry, stand, sit, bark, happy, lie, sleep, sniff
+    case walk, carry, run, stand, sit, happy, hop, bark, lie, sleep, sniff
+    case tilt, stretch, sitDown, standUp, lieDown, getUp, pick, place, dangle
 
     /// Bilder pro Sekunde.
     var fps: Double {
         switch self {
-        case .walk, .carry: return 10
-        case .happy: return 8
-        case .sniff: return 6
-        case .stand, .sit, .bark: return 4
-        case .lie: return 1.5
-        case .sleep: return 1
+        case .walk, .carry: return 12
+        case .run: return 14
+        case .happy, .hop, .pick, .place: return 10
+        case .sniff, .tilt, .stretch: return 8
+        case .sitDown, .standUp, .lieDown, .getUp: return 14
+        case .bark, .dangle: return 6
+        case .stand, .sit: return 4
+        case .lie: return 3
+        case .sleep: return 2
         }
     }
 
-    /// Ersatz, falls ein Foto-Set eine Pose nicht enthält.
+    /// Einmalige Animationen (danach geht es weiter), alle anderen laufen in Schleife.
+    var isOneShot: Bool {
+        switch self {
+        case .sitDown, .standUp, .lieDown, .getUp, .pick, .place, .stretch, .tilt: return true
+        default: return false
+        }
+    }
+
+    /// Haltung, die diese Animation voraussetzt (nil = egal).
+    var posture: Posture? {
+        switch self {
+        case .walk, .carry, .run, .stand, .hop, .sniff, .tilt, .stretch, .pick, .place: return .stand
+        case .sit, .happy, .bark: return .sit
+        case .lie, .sleep: return .lie
+        case .sitDown, .standUp, .lieDown, .getUp, .dangle: return nil
+        }
+    }
+
+    /// Ersatz, falls ein Foto-Set eine Pose nicht enthält. Übergänge ohne Ersatz werden übersprungen.
     var fallback: Animation? {
         switch self {
-        case .carry: return .walk
+        case .carry, .run: return .walk
         case .happy, .bark: return .sit
+        case .hop, .sniff, .tilt, .walk: return .stand
         case .sleep: return .lie
-        case .sniff, .sit, .lie, .walk: return .stand
-        case .stand: return nil
+        case .lie: return .sit
+        case .sit: return .stand
+        case .pick, .place: return .sniff
+        case .dangle: return .happy
+        case .stand, .stretch, .sitDown, .standUp, .lieDown, .getUp: return nil
         }
     }
 }
@@ -97,6 +128,21 @@ final class SpriteLibrary {
         needsProceduralBob = minFrames < 4
     }
 
+    /// Hat das Set eigene Bilder für genau diese Animation?
+    func has(_ animation: Animation) -> Bool {
+        animations[animation] != nil
+    }
+
+    /// Dauer einer Einmal-Animation (0, wenn sie im Set fehlt und keinen Ersatz hat).
+    func duration(of animation: Animation) -> TimeInterval {
+        var current: Animation? = animation
+        while let a = current {
+            if let frames = animations[a] { return Double(frames.count) / animation.fps }
+            current = a.fallback
+        }
+        return 0
+    }
+
     func frames(_ animation: Animation) -> [SpriteFrame] {
         var current: Animation? = animation
         while let a = current {
@@ -106,37 +152,45 @@ final class SpriteLibrary {
         return animations[.walk] ?? []
     }
 
-    /// Mitgelieferte Zeichnung: im App-Bundle oder – bei `swift run` – im Repo.
-    static func bundledDirectory() -> URL? {
+    /// Mitgelieferter Sprite-Ordner (`Sprites` = Zeichnung, `PhotoSprites` = Fotos):
+    /// im App-Bundle oder – bei `swift run` – im Repo.
+    static func bundledDirectory(_ name: String = "Sprites") -> URL? {
         let fm = FileManager.default
-        if let res = Bundle.main.resourceURL?.appendingPathComponent("Sprites"),
-           fm.fileExists(atPath: res.appendingPathComponent("sprites.json").path) {
+        func valid(_ url: URL) -> Bool { fm.fileExists(atPath: url.appendingPathComponent("sprites.json").path) }
+        if let res = Bundle.main.resourceURL?.appendingPathComponent(name), valid(res) {
             return res
-        }
-        if let env = ProcessInfo.processInfo.environment["BILLY_SPRITES"] {
-            return URL(fileURLWithPath: env)
         }
         var dir = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().deletingLastPathComponent()
         for _ in 0..<6 {
-            let candidate = dir.appendingPathComponent("Resources/Sprites")
-            if fm.fileExists(atPath: candidate.appendingPathComponent("sprites.json").path) { return candidate }
+            let candidate = dir.appendingPathComponent("Resources/\(name)")
+            if valid(candidate) { return candidate }
             dir = dir.deletingLastPathComponent()
         }
         return nil
     }
 
-    static var hasPhotoSkin: Bool {
-        FileManager.default.fileExists(atPath: Settings.photoSpritesDirectory.appendingPathComponent("sprites.json").path)
+    /// Foto-Sprites: eigene aus dem Support-Ordner, sonst die mitgelieferten.
+    static var photoDirectory: URL? {
+        let own = Settings.photoSpritesDirectory
+        if FileManager.default.fileExists(atPath: own.appendingPathComponent("sprites.json").path) { return own }
+        return bundledDirectory("PhotoSprites")
     }
+
+    static var hasPhotoSkin: Bool { photoDirectory != nil }
 
     /// Lädt je nach Einstellung Foto- oder Zeichen-Sprites (mit Rückfall auf die Zeichnung).
     @MainActor
     static func loadPreferred() -> SpriteLibrary? {
-        if Settings.shared.skin == "photo", hasPhotoSkin,
-           let library = try? SpriteLibrary(directory: Settings.photoSpritesDirectory) {
+        if Settings.shared.skin != "drawn", let dir = photoDirectory,
+           let library = try? SpriteLibrary(directory: dir) {
             return library
         }
         guard let dir = bundledDirectory() else { return nil }
         return try? SpriteLibrary(directory: dir)
+    }
+
+    @MainActor
+    static var isShowingPhotos: Bool {
+        Settings.shared.skin != "drawn" && hasPhotoSkin
     }
 }

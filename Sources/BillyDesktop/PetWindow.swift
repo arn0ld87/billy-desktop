@@ -41,17 +41,27 @@ protocol PetViewDelegate: AnyObject {
 final class PetView: NSView {
     weak var delegate: PetViewDelegate?
 
-    var spriteFrame: SpriteFrame?
+    private(set) var spriteFrame: SpriteFrame?
+    private var animation: Animation = .stand
     var frameSize = CGSize(width: 160, height: 120)
     var groundY: CGFloat = 112
     var scale: CGFloat = 1
     var facingLeft = false
-    var bob: CGFloat = 0
+    /// Foto-Sets: Atmen, Hüpfen und Wippen werden berechnet statt gezeichnet.
+    var proceduralLife = false
     var carriedIcon: NSImage?
     var bubbleText: String?
     var showHeart = false
-    var sleeping = false
-    var tick: Int = 0
+    var time: TimeInterval = 0
+
+    // Überblendung beim Posenwechsel
+    private var fadeFrom: (frame: SpriteFrame, facingLeft: Bool, lift: CGFloat)?
+    private var fadeStart: TimeInterval = 0
+    private let fadeDuration: TimeInterval = 0.16
+    // Datei fällt in den Ordner
+    private var droppedIcon: (image: NSImage, center: CGPoint, start: TimeInterval)?
+    // Landung nach dem Tragen mit der Maus
+    private var bounceStart: TimeInterval = -10
 
     static let bubbleArea: CGFloat = 96
     static let minWidth: CGFloat = 280
@@ -66,10 +76,61 @@ final class PetView: NSView {
         CGSize(width: max(frameSize.width * scale, minWidth), height: frameSize.height * scale + bubbleArea)
     }
 
-    var dogRect: CGRect {
-        let w = frameSize.width * scale, h = frameSize.height * scale
-        return CGRect(x: (bounds.width - w) / 2, y: bob, width: w, height: h)
+    func setFrame(_ frame: SpriteFrame, animation: Animation) {
+        spriteFrame = frame
+        self.animation = animation
     }
+
+    /// Nächsten Bildwechsel weich überblenden.
+    func crossfade() {
+        guard let frame = spriteFrame else { return }
+        fadeFrom = (frame, facingLeft, lift)
+        fadeStart = time
+    }
+
+    /// Getragene Datei loslassen: sie schrumpft in den Ordner.
+    func dropCarriedIcon() {
+        guard let icon = carriedIcon, let frame = spriteFrame else { return }
+        droppedIcon = (icon, iconRect(for: frame).center, time)
+        carriedIcon = nil
+    }
+
+    func bounce() {
+        bounceStart = time
+    }
+
+    /// Sprunghöhe (Foto-Sets hüpfen berechnet, alle landen federnd).
+    private var lift: CGFloat {
+        var y: CGFloat = 0
+        if proceduralLife {
+            switch animation {
+            case .walk, .carry: y += CGFloat(abs(sin(time * 11))) * 3 * scale
+            case .run: y += CGFloat(abs(sin(time * 14))) * 9 * scale
+            case .hop, .happy: y += CGFloat(abs(sin(time * 9))) * 12 * scale
+            default: break
+            }
+        }
+        let b = time - bounceStart
+        if b < 0.45 { y += CGFloat(abs(sin(b * 14)) * (0.45 - b)) * 30 * scale }
+        return y
+    }
+
+    /// Atmen: leichtes Strecken nach oben (nur Foto-Sets, die Zeichnung atmet selbst).
+    private var breathScale: CGFloat {
+        guard proceduralLife else { return 1 }
+        switch animation {
+        case .stand, .sit, .lie: return 1 + CGFloat(0.010 * sin(time * 2 * .pi / 3.2))
+        case .sleep: return 1 + CGFloat(0.018 * sin(time * 2 * .pi / 4.2))
+        default: return 1
+        }
+    }
+
+    func dogRect(lift: CGFloat? = nil) -> CGRect {
+        let w = frameSize.width * scale, h = frameSize.height * scale
+        return CGRect(x: (bounds.width - w) / 2, y: lift ?? self.lift, width: w, height: h)
+    }
+
+    var dogRect: CGRect { dogRect() }
 
     /// Fußpunkt (Mitte, Bodenlinie) in View-Koordinaten.
     var feetPoint: CGPoint {
@@ -95,30 +156,62 @@ final class PetView: NSView {
         return frame.isOpaque(at: framePoint(forViewPoint: p), frameSize: frameSize)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard let frame = spriteFrame, let ctx = NSGraphicsContext.current else { return }
-        let rect = dogRect
+    private func iconRect(for frame: SpriteFrame) -> CGRect {
+        let mouth = viewPoint(forFramePoint: frame.anchor("mouth"))
+        let size = 30 * scale
+        return CGRect(x: mouth.x - size / 2, y: mouth.y - size * 0.75, width: size, height: size)
+    }
 
+    private func drawDog(_ frame: SpriteFrame, facingLeft: Bool, lift: CGFloat, alpha: CGFloat) {
+        guard let ctx = NSGraphicsContext.current else { return }
+        let rect = dogRect(lift: lift)
         ctx.saveGraphicsState()
-        if facingLeft {
-            let t = NSAffineTransform()
-            t.translateX(by: rect.midX, yBy: 0)
-            t.scaleX(by: -1, yBy: 1)
-            t.translateX(by: -rect.midX, yBy: 0)
-            t.concat()
-        }
-        frame.image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+        let t = NSAffineTransform()
+        t.translateX(by: rect.midX, yBy: rect.minY)
+        t.scaleX(by: facingLeft ? -1 : 1, yBy: breathScale)
+        t.translateX(by: -rect.midX, yBy: -rect.minY)
+        t.concat()
+        frame.image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: alpha)
         ctx.restoreGraphicsState()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let frame = spriteFrame else { return }
+        let currentLift = lift
+
+        // Bodenschatten für Foto-Sets, der beim Hüpfen kleiner wird
+        if proceduralLife {
+            let k = max(0.5, 1 - currentLift / (40 * scale))
+            let w = frameSize.width * scale * 0.7 * k
+            let shadow = NSBezierPath(ovalIn: CGRect(x: bounds.midX - w / 2, y: feetPoint.y - 5 * scale * k,
+                                                     width: w, height: 10 * scale * k))
+            NSColor.black.withAlphaComponent(0.12 * k).setFill()
+            shadow.fill()
+        }
+
+        let fade = fadeFrom.map { _ in min(1, (time - fadeStart) / fadeDuration) } ?? 1
+        if let from = fadeFrom, fade < 1 {
+            drawDog(from.frame, facingLeft: from.facingLeft, lift: from.lift, alpha: 1 - CGFloat(fade))
+            drawDog(frame, facingLeft: facingLeft, lift: currentLift, alpha: CGFloat(fade))
+        } else {
+            fadeFrom = nil
+            drawDog(frame, facingLeft: facingLeft, lift: currentLift, alpha: 1)
+        }
 
         if let icon = carriedIcon {
-            let mouth = viewPoint(forFramePoint: frame.anchor("mouth"))
-            let size = 30 * scale
-            icon.draw(in: CGRect(x: mouth.x - size / 2, y: mouth.y - size * 0.75, width: size, height: size))
+            icon.draw(in: iconRect(for: frame))
+        }
+        if let drop = droppedIcon {
+            let p = CGFloat(min(1, (time - drop.start) / 0.35))
+            let size = 30 * scale * (1 - p * 0.8)
+            let rect = CGRect(x: drop.center.x - size / 2, y: drop.center.y - size / 2 - p * 10 * scale, width: size, height: size)
+            drawIcon(drop.image, in: rect, alpha: 1 - p)
+            if p >= 1 { droppedIcon = nil }
         }
 
         let head = viewPoint(forFramePoint: frame.anchor("head"))
-        if sleeping {
-            let phase = (tick / 12) % 3
+        if animation == .sleep {
+            let phase = Int(time * 1.5) % 3
             for i in 0...phase {
                 let s = CGFloat(10 + i * 4) * scale
                 let attrs: [NSAttributedString.Key: Any] = [
@@ -131,12 +224,16 @@ final class PetView: NSView {
         }
         if showHeart {
             let s = 20 * scale
-            let y = head.y + 8 * scale + CGFloat(tick % 20) * 0.6
+            let y = head.y + 8 * scale + CGFloat((time * 30).truncatingRemainder(dividingBy: 20)) * 0.6
             ("❤️" as NSString).draw(at: CGPoint(x: head.x - s / 2, y: y), withAttributes: [.font: NSFont.systemFont(ofSize: s)])
         }
         if let text = bubbleText {
             drawBubble(text, anchor: head)
         }
+    }
+
+    private func drawIcon(_ image: NSImage, in rect: CGRect, alpha: CGFloat) {
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: alpha)
     }
 
     var bubbleRect: CGRect? {
@@ -225,4 +322,8 @@ final class PetView: NSView {
             NSMenu.popUpContextMenu(menu, with: event, for: self)
         }
     }
+}
+
+private extension CGRect {
+    var center: CGPoint { CGPoint(x: midX, y: midY) }
 }

@@ -13,7 +13,8 @@ jeder Datei, trägt sie im Maul zum passenden Ordner und legt sie dort ab.
 | Rückgängig | „Rückgängig“ oder Menü → *Aufräumen rückgängig machen* |
 | Kommandos | Sitz, Platz, Schlaf, Komm, Gassi, Gib Laut, Leckerli, Bleib, Spiel, Hilfe |
 | Kraulen / Tragen | Billy anklicken bzw. mit der Maus ziehen |
-| Echte Fotos statt Zeichnung | [docs/BILLY-FOTOS.md](docs/BILLY-FOTOS.md) |
+| Echte Fotos statt Zeichnung | PNGs nach `photos/` → `make photos-bundle` · [docs/BILLY-FOTOS.md](docs/BILLY-FOTOS.md) |
+| Animationen | laufen, Galopp (Zoomies), sitzen/hinlegen mit Übergängen, strecken & gähnen, Kopf schief legen, Datei aufnehmen/ablegen, zappeln beim Hochheben |
 | Freie Fragen (optional) | Menü → *Claude-Chat einrichten …* (Anthropic-API-Schlüssel) |
 
 ## Installation
@@ -95,7 +96,9 @@ make photos PHOTOS=~/Pictures/Billy-Fotos   # eigene Fotos importieren
 | `Sources/BillyCore` | reine Logik: Befehlserkennung, Kategorien, Aufräumplan, Ausführung + Undo |
 | `Sources/BillyDesktop` | AppKit/SwiftUI: Billy-Fenster, Animation, Chat, Finder-Anbindung, Menü |
 | `Resources/Sprites` | gezeichnete Sprites (erzeugt von `tools/sprites/generate_sprites.py`) |
-| `tools/photos/import_photos.py` | macht aus ChatGPT-Bildern Foto-Sprites |
+| `tools/photos/import_photos.py` | macht aus ChatGPT-Bildern Foto-Sprites (KI-Freistellung per rembg) |
+| `tools/photos/split_sheet.py` | zerlegt ein Übersichtsbild mit mehreren Posen in Einzelbilder |
+| `photos/` → `Resources/PhotoSprites` | Rohbilder → mitgeliefertes Foto-Aussehen |
 | `tools/icon/make_icon.py` | App-Icon aus einem Foto |
 
 ## Nächste Schritte

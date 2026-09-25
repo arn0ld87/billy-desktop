@@ -45,19 +45,28 @@ Bestätige kurz und warte dann auf die erste Pose.
   Fehlende Posen ersetzt die App automatisch (z. B. `happy` → `sit`, `sleep` → `lie`). Mit nur einem
   Laufbild wippt Billy beim Laufen.
 
-- Schritt 3: Alle Bilder in einen Ordner legen
+- Schritt 3 (Variante A, empfohlen): Bilder ins Repo hochladen – dann sind sie für alle Builds dabei
+  - GitHub → Repo → Ordner `photos/` → **Add file → Upload files** → PNGs hineinziehen → Commit
+  - danach im Repo-Ordner:
 ```bash
-# Ordner anlegen und die PNGs aus ChatGPT hineinkopieren
-mkdir -p ~/Pictures/Billy-Fotos
+# stellt frei (KI-Maske, klappt auch auf weißem Hintergrund), skaliert, berechnet Maul/Nase
+make photos-bundle && make install
 ```
 
-- Schritt 4: Importieren (stellt frei, skaliert, setzt auf den Boden, berechnet Maul/Nase)
+- Schritt 3 (Variante B): nur lokal auf diesem Mac
 ```bash
-# im Repo-Ordner ausführen
+mkdir -p ~/Pictures/Billy-Fotos   # PNGs hineinkopieren
 make photos PHOTOS=~/Pictures/Billy-Fotos
 ```
 
-- Schritt 5: In der App umschalten → Menüleiste 🐾 → *Aussehen* → **Echte Fotos**
+- Schritt 4: Die App nimmt Fotos automatisch, sobald welche da sind. Umschalten:
+  Menüleiste 🐾 → *Aussehen* → **Echte Fotos** / **Gezeichnet**
+
+- Übersichtsbild mit mehreren Posen? Automatisch zerschneiden:
+```bash
+.venv/bin/python tools/photos/split_sheet.py uebersicht.png photos \
+  --names walk_1,walk_2,walk_3,walk_4,carry,sit,happy,bark,lie,sleep,sniff
+```
 
 ## Überprüfung
 
@@ -74,12 +83,13 @@ Billy sagt „Tadaa – das bin ich in echt! 📸“.
 | Problem | Lösung |
 |---|---|
 | Hund schaut nach links | `.venv/bin/python tools/photos/import_photos.py ~/Pictures/Billy-Fotos --flip sit.png` |
-| Weißer Rand/Hintergrund bleibt | Bild neu mit „einfarbig knallgrün #00FF00 als Hintergrund“ anfordern |
+| Weißer Rand/Hintergrund bleibt | `make photos` installiert `rembg` (KI-Freistellung); notfalls Bild mit Greenscreen #00FF00 anfordern |
 | Datei trägt er neben dem Maul | Anker in `sprites.json` (`mouth`, Punkte ab oben links, Frame 160×120) anpassen |
 | Größen springen zwischen Posen | ChatGPT bitten: „gleicher Maßstab wie das Stand-Bild“ und neu erzeugen |
 
-**Warum Greenscreen?** Billy ist überwiegend weiß. Vor weißem Hintergrund lässt er sich nicht sauber
-freistellen, vor #00FF00 schon.
+**Warum KI-Maske?** Billy ist überwiegend weiß. Eine einfache Farbauswahl frisst vor weißem
+Hintergrund sein Fell weg. Die ISNet-Maske (rembg) erkennt den Hund als Objekt, die Farben
+kommen unverändert aus dem Originalbild.
 
 ## Nächste Schritte
 

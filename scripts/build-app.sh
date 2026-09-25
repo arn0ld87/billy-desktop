@@ -23,6 +23,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/BillyDesktop" "$APP/Contents/MacOS/BillyDesktop"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/Sprites "$APP/Contents/Resources/Sprites"
+if [[ -f Resources/PhotoSprites/sprites.json ]]; then
+  cp -R Resources/PhotoSprites "$APP/Contents/Resources/PhotoSprites"
+fi
 iconutil -c icns Resources/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 

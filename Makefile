@@ -2,7 +2,7 @@
 APP := build/Billy Desktop.app
 PHOTOS ?= $(HOME)/Pictures/Billy-Fotos
 
-.PHONY: app run install test sprites photos venv clean
+.PHONY: app run install test sprites photos photos-bundle venv clean
 
 app: ## .app bauen
 	./scripts/build-app.sh
@@ -24,8 +24,13 @@ venv: ## Python-Umgebung für die Bild-Werkzeuge
 sprites: venv   ## gezeichnete Sprites neu rendern
 	.venv/bin/python tools/sprites/generate_sprites.py
 
-photos: venv    ## ChatGPT-Fotos importieren (PHOTOS=Ordner)
+photos: venv    ## eigene ChatGPT-Fotos importieren (PHOTOS=Ordner) → nur auf diesem Mac
+	.venv/bin/pip install -q "rembg[cpu]"
 	.venv/bin/python tools/photos/import_photos.py "$(PHOTOS)"
+
+photos-bundle: venv ## Fotos aus photos/ als mitgeliefertes Aussehen bauen (Resources/PhotoSprites)
+	.venv/bin/pip install -q "rembg[cpu]"
+	.venv/bin/python tools/photos/import_photos.py photos --out Resources/PhotoSprites
 
 clean:
 	rm -rf .build build .venv

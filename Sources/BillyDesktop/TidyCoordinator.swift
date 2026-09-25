@@ -104,7 +104,7 @@ final class TidyCoordinator {
                 for move in rest { _ = try? executor.perform(move) }
                 pet?.say("… und die restlichen \(rest.count) im Schnelldurchgang! 💨")
             })
-            actions.append(.pose(.happy, duration: 1.5))
+            actions.append(.pose(.hop, duration: 1.2))
         }
         actions.append(.run { [weak self, weak pet] in
             guard let self else { return }
@@ -113,7 +113,7 @@ final class TidyCoordinator {
             pet?.heart()
             pet?.say(BillyReplies.tidySummary(moved: executor.journal.records.count))
         })
-        actions.append(.pose(.happy, duration: 2.5))
+        actions.append(.pose(.hop, duration: 1.6))
         pet.rest(.sit)
         pet.enqueue(actions)
     }
@@ -125,24 +125,21 @@ final class TidyCoordinator {
         let approachLeft = fileSpot.x < pet.position.x
         let pickFeet = pet.clampToScreen(pet.feetPoint(placing: "nose", of: .sniff, at: fileSpot, faceLeft: approachLeft))
         let dropLeft = folderSpot.x < fileSpot.x
-        let dropFeet = pet.clampToScreen(pet.feetPoint(placing: "mouth", of: .carry, at: folderSpot, faceLeft: dropLeft))
-        var carried = false
+        let dropFeet = pet.clampToScreen(pet.feetPoint(placing: "mouth", of: .place, at: folderSpot, faceLeft: dropLeft))
         return [
             .walk(to: pickFeet, speed: 1.6, faceLeftOnArrival: approachLeft),
-            .pose(.sniff, duration: 0.6),
+            .pose(.sniff, duration: 0.7),
             .run { [weak pet] in
                 do {
                     try executor.perform(move)
-                    carried = true
                     pet?.view.carriedIcon = icon
                 } catch {
                     pet?.say("Hm, \(move.source.lastPathComponent) krieg ich nicht zu fassen.")
                 }
             },
+            .play(.pick),
             .walk(to: dropFeet, speed: 1.6, carry: true, faceLeftOnArrival: dropLeft),
-            .run { [weak pet] in
-                if carried { pet?.view.carriedIcon = nil }
-            },
+            .play(.place),
         ]
     }
 

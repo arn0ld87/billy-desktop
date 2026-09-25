@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -170,6 +171,9 @@ class Pose:
     hind_far: Leg = None
     ground_snap: bool = True
     breathe: float = 0.0       # 0..1 Brustkorb
+    lift: float = 0.0          # Sprunghöhe über dem Boden (nach dem Aufsetzen)
+    far_ear_tilt: float | None = None
+    belly: bool = False        # liegt: Brust statt Pfoten auf den Boden setzen
     extra: dict = field(default_factory=dict)
 
 
@@ -253,17 +257,28 @@ def head_pt(pose, local):
     return add(c, rot(local, a))
 
 
-def render(pose: Pose):
-    if pose.ground_snap:
+def resolve(pose: Pose) -> Pose:
+    """Setzt die Pose auf den Boden (Pfoten oder Bauch) und wendet den Sprung an."""
+    if pose.belly:
+        chest_bottom = body_pt(pose, (92, 20 + pose.breathe))[1]
+        pose = replace(pose, hip=(pose.hip[0], pose.hip[1] + GROUND - 2 - chest_bottom))
+    elif pose.ground_snap:
         pose = snap_to_ground(pose)
+    return replace(pose, hip=(pose.hip[0], pose.hip[1] - pose.lift), ground_snap=False, belly=False, lift=0.0)
+
+
+def render(pose: Pose):
+    lift = pose.lift
+    pose = resolve(pose)
     cv = Canvas()
     j = joints(pose)
     far_offset = (7, -3)  # entfernte Beine leicht versetzt
 
     # Schatten
     sx = (j["hip"][0] + j["shoulder"][0]) / 2
-    shadow = Mask().poly(ellipse_poly((sx, GROUND - 1), 92, 9)).arr()
-    cv.paint(shadow, (0, 0, 0, 255), alpha=0.14)
+    k = max(0.55, 1 - lift / 40)
+    shadow = Mask().poly(ellipse_poly((sx, GROUND - 1), 92 * k, 9 * k)).arr()
+    cv.paint(shadow, (0, 0, 0, 255), alpha=0.14 * k)
 
     # Entfernte Beine
     for joint, leg in ((j["hip"], pose.hind_far), (j["shoulder"], pose.front_far)):
@@ -290,7 +305,8 @@ def render(pose: Pose):
         return add(hc, rot(local, ha))
 
     tilt = pose.ear_tilt
-    cv.sticker(Mask().poly(ear_poly(hp, (0, -12), tilt - 0.12, 1.0)).arr(), C_TAN_DARK)
+    far_tilt = pose.far_ear_tilt if pose.far_ear_tilt is not None else tilt - 0.12
+    cv.sticker(Mask().poly(ear_poly(hp, (0, -12), far_tilt, 1.0)).arr(), C_TAN_DARK)
 
     # Hauptkörper: Rumpf, Hals, Kopf, nahe Beine
     br = pose.breathe
@@ -385,6 +401,43 @@ def render(pose: Pose):
 
 # --------------------------------------------------------------------------- Animationen
 
+TAU = 2 * math.pi
+
+
+def ease(t):
+    return t * t * (3 - 2 * t)
+
+
+def lerp(a, b, t):
+    return a + (b - a) * t
+
+
+def lerp_leg(a: Leg, b: Leg, t):
+    return Leg(tuple(lerp(x, y, t) for x, y in zip(a.angles, b.angles)), a.lengths, a.radii)
+
+
+def lerp_pose(a: Pose, b: Pose, t: float) -> Pose:
+    """Überblendet zwei (bereits aufgesetzte) Posen."""
+    a, b = resolve(a), resolve(b)
+    return Pose(
+        hip=(lerp(a.hip[0], b.hip[0], t), lerp(a.hip[1], b.hip[1], t)),
+        body=lerp(a.body, b.body, t), neck=lerp(a.neck, b.neck, t), head=lerp(a.head, b.head, t),
+        jaw=lerp(a.jaw, b.jaw, t), tongue=b.tongue if t >= 0.5 else a.tongue,
+        eyes_closed=b.eyes_closed if t >= 0.5 else a.eyes_closed,
+        ear_tilt=lerp(a.ear_tilt, b.ear_tilt, t),
+        tail=lerp(a.tail, b.tail, t), tail_curl=lerp(a.tail_curl, b.tail_curl, t),
+        front_near=lerp_leg(a.front_near, b.front_near, t), front_far=lerp_leg(a.front_far, b.front_far, t),
+        hind_near=lerp_leg(a.hind_near, b.hind_near, t), hind_far=lerp_leg(a.hind_far, b.hind_far, t),
+        breathe=lerp(a.breathe, b.breathe, t), ground_snap=False,
+    )
+
+
+def blink(i, at):
+    return i in at
+
+
+# ---- Grundposen -------------------------------------------------------------
+
 def walk_leg_angles(p, amp):
     """Schrittzyklus: 60 % Standphase, 40 % Schwungphase mit Anheben."""
     stance = 0.6
@@ -403,90 +456,173 @@ def walk_pose(t, amp=0.38, carry=False):
             legs[name] = front(a * 0.85, a * 0.85 - lift * 1.1)
         else:
             legs[name] = hind(0.45 + a * 0.8, -0.52 + a * 0.45 + lift * 0.35, 0.12 + a * 0.6 - lift * 0.9)
-    wag = math.sin(2 * math.pi * t)
+    bob = math.sin(2 * TAU * t)
     return Pose(
-        body=0.02 * math.sin(4 * math.pi * t),
-        neck=-0.85 + 0.03 * math.sin(4 * math.pi * t),
-        head=0.08,
+        body=0.02 * bob,
+        neck=-0.85 + 0.05 * bob,
+        head=(-0.04 if carry else 0.08) + 0.03 * math.sin(2 * TAU * t + 0.6),
         jaw=0.22 if carry else 0.0,
-        tail=-2.75 + 0.18 * wag,
+        tail=-2.75 + 0.22 * math.sin(TAU * t),
         tail_curl=0.14,
-        ear_tilt=-0.08 * wag,
+        ear_tilt=-0.1 - 0.12 * math.sin(2 * TAU * t - 0.9),   # Ohren wippen nach
         **legs,
     )
 
 
-def stand_pose(t):
-    wag = math.sin(2 * math.pi * t)
-    return Pose(
-        neck=-0.95, head=0.02, tail=-2.2 + 0.45 * wag, tail_curl=0.22,
+def stand_pose(wag=0.0, eyes_closed=False, ear=0.0, breathe=0.0, **kw):
+    base = dict(
+        neck=-0.95, head=0.02, tail=-2.2 + 0.45 * wag, tail_curl=0.22, ear_tilt=ear,
+        eyes_closed=eyes_closed, breathe=breathe,
         front_near=STAND_FRONT, front_far=front(-0.05, -0.02),
         hind_near=STAND_HIND, hind_far=hind(0.38, -0.55, 0.1),
     )
+    base.update(kw)
+    return Pose(**base)
 
 
 SIT_HIND = hind(1.25, -1.62, 1.5)
 
 
-def sit_pose(t, jaw=0.0, tongue=False, head=-0.02, neck=-1.3):
-    wag = math.sin(2 * math.pi * t)
-    return Pose(
+def sit_pose(wag=0.0, jaw=0.0, tongue=False, head=-0.02, neck=-1.3, eyes_closed=False, ear=0.0, breathe=0.0, **kw):
+    base = dict(
         hip=(128, 200), body=-0.8, neck=neck, head=head, jaw=jaw, tongue=tongue,
-        tail=-3.2 + 0.3 * wag, tail_curl=-0.06,
+        tail=-3.2 + 0.3 * wag, tail_curl=-0.06, eyes_closed=eyes_closed, ear_tilt=ear, breathe=breathe,
         front_near=front(0.06, 0.0), front_far=front(0.0, -0.02),
         hind_near=SIT_HIND, hind_far=hind(1.2, -1.6, 1.5),
     )
+    base.update(kw)
+    return Pose(**base)
 
 
 LIE_FRONT = front(1.0, 1.57)
 LIE_HIND = hind(1.35, -1.5, 1.55)
 
 
-def lie_pose(t, sleep=False):
-    br = 1.2 * math.sin(2 * math.pi * t)
-    if sleep:
-        return Pose(
-            hip=(110, 202), body=0.0, neck=0.05, head=0.18, eyes_closed=True,
-            tail=2.9, tail_curl=-0.06, breathe=br, ground_snap=False,
-            front_near=LIE_FRONT, front_far=front(1.05, 1.57),
-            hind_near=LIE_HIND, hind_far=hind(1.3, -1.5, 1.55),
-        )
+def lie_pose(breathe=0.0, sleep=False, eyes_closed=False, tail=3.0, ear=0.0):
     return Pose(
-        hip=(110, 202), body=0.0, neck=-0.7, head=0.05,
-        tail=3.0, tail_curl=-0.04, breathe=br, ground_snap=False,
+        hip=(110, 202), body=0.0, neck=0.05 if sleep else -0.7, head=0.18 if sleep else 0.05,
+        eyes_closed=sleep or eyes_closed, ear_tilt=(-0.25 if sleep else ear),
+        tail=2.9 if sleep else tail, tail_curl=-0.06 if sleep else -0.04, breathe=breathe, belly=True,
         front_near=LIE_FRONT, front_far=front(1.05, 1.57),
         hind_near=LIE_HIND, hind_far=hind(1.3, -1.5, 1.55),
     )
 
 
-def sniff_pose(t):
-    bob = math.sin(2 * math.pi * t)
-    return Pose(
-        neck=0.55 + 0.05 * bob, head=1.05 + 0.08 * bob,
-        tail=-2.3 + 0.25 * bob, tail_curl=0.2,
-        front_near=front(0.08, 0.02), front_far=front(-0.02, -0.02),
-        hind_near=STAND_HIND, hind_far=hind(0.38, -0.55, 0.1),
+def sniff_pose(t, jaw=0.0):
+    wob = math.sin(TAU * t)
+    return stand_pose(
+        wag=0.4 * math.sin(2 * TAU * t), neck=0.55 + 0.08 * wob, head=1.05 + 0.1 * math.sin(2 * TAU * t),
+        jaw=jaw, ear=0.1 * wob, front_near=front(0.08, 0.02), tail=-2.3 + 0.25 * wob,
     )
 
 
-def fix_lie(pose):
-    """Liegen: Bauch auf den Boden setzen statt Pfoten."""
-    j = joints(pose)
-    chest_bottom = body_pt(pose, (92, 20 + pose.breathe))[1]
-    dy = GROUND - 2 - chest_bottom
-    return replace(pose, hip=(pose.hip[0], pose.hip[1] + dy))
+def bow_pose(jaw=0.0, eyes_closed=False, head=0.1):
+    """Vorderkörper tief, Po hoch – Strecken wie ein Windhund."""
+    return Pose(
+        body=0.34, neck=-0.3, head=head, jaw=jaw, eyes_closed=eyes_closed, tail=-1.9, tail_curl=0.2,
+        front_near=front(1.15, 1.5), front_far=front(1.05, 1.45),
+        hind_near=hind(0.25, -0.45, 0.1), hind_far=hind(0.2, -0.5, 0.08),
+    )
 
+
+# ---- Galopp (Podenco = Windhund) --------------------------------------------
+
+GALLOP = [
+    dict(fn=(0.95, 1.25), ff=(0.8, 1.1), hn=(-0.7, -1.0, -0.7), hf=(-0.55, -0.9, -0.6), body=0.0, lift=9, neck=-0.55),
+    dict(fn=(0.35, 0.3), ff=(0.6, 0.7), hn=(-0.2, -0.9, -0.3), hf=(-0.4, -1.0, -0.5), body=0.04, lift=0, neck=-0.5),
+    dict(fn=(-0.45, -0.7), ff=(-0.1, -0.2), hn=(0.6, -0.6, 0.3), hf=(0.4, -0.7, 0.0), body=0.02, lift=0, neck=-0.6),
+    dict(fn=(-0.9, -1.6), ff=(-0.75, -1.4), hn=(1.25, -0.5, 0.9), hf=(1.1, -0.6, 0.7), body=-0.06, lift=7, neck=-0.7),
+    dict(fn=(-0.2, -1.2), ff=(-0.4, -1.3), hn=(0.9, -0.3, 0.25), hf=(1.0, -0.4, 0.4), body=-0.04, lift=0, neck=-0.65),
+    dict(fn=(0.4, -0.3), ff=(0.2, -0.6), hn=(0.1, -0.8, -0.2), hf=(0.4, -0.6, 0.0), body=-0.02, lift=0, neck=-0.6),
+]
+
+
+def gallop_pose(t):
+    x = t * len(GALLOP)
+    i = int(x) % len(GALLOP)
+    f = x - int(x)
+    a, b = GALLOP[i], GALLOP[(i + 1) % len(GALLOP)]
+    mix = lambda k: tuple(lerp(u, v, f) for u, v in zip(a[k], b[k]))
+    return Pose(
+        body=lerp(a["body"], b["body"], f), neck=lerp(a["neck"], b["neck"], f), head=0.12,
+        lift=lerp(a["lift"], b["lift"], f), ear_tilt=-0.6, far_ear_tilt=-0.7,
+        tail=-3.05 + 0.12 * math.sin(TAU * t), tail_curl=0.05,
+        front_near=front(*mix("fn")), front_far=front(*mix("ff")),
+        hind_near=hind(*mix("hn")), hind_far=hind(*mix("hf")),
+    )
+
+
+# ---- Sequenzen --------------------------------------------------------------
+
+def seq(n, fn):
+    return [fn(i / n, i) for i in range(n)]
+
+
+def transition(a: Pose, b: Pose, n=6):
+    return [lerp_pose(a, b, ease((i + 1) / n)) for i in range(n)]
+
+
+def keyframes(poses, per=3):
+    out = []
+    for a, b in zip(poses, poses[1:]):
+        out += [lerp_pose(a, b, ease(i / per)) for i in range(per)]
+    return out + [poses[-1]]
+
+
+STAND = stand_pose()
+SIT = sit_pose()
+LIE = lie_pose()
+SNIFF = sniff_pose(0.0)
+CARRY = walk_pose(0.0, carry=True)
 
 ANIMATIONS = {
-    "walk": (8, lambda t: walk_pose(t)),
-    "carry": (8, lambda t: walk_pose(t, carry=True)),
-    "stand": (4, stand_pose),
-    "sit": (4, lambda t: sit_pose(t)),
-    "bark": (2, lambda t: sit_pose(0.25, jaw=0.5 if t < 0.5 else 0.05, head=-0.25, neck=-1.4)),
-    "happy": (4, lambda t: sit_pose(t, jaw=0.35, tongue=True, head=-0.1)),
-    "lie": (2, lambda t: fix_lie(lie_pose(t))),
-    "sleep": (2, lambda t: fix_lie(lie_pose(t, sleep=True))),
-    "sniff": (4, sniff_pose),
+    # Laufen & Tragen: 12 Bilder, Kopf und Ohren wippen mit
+    "walk": seq(12, lambda t, i: walk_pose(t)),
+    "carry": seq(12, lambda t, i: walk_pose(t, carry=True)),
+    # Galopp für Zoomies
+    "run": seq(8, lambda t, i: gallop_pose(t)),
+    # Ruhen mit Atmen, Blinzeln, Ohrzucken, Rutenwedeln
+    "stand": seq(16, lambda t, i: stand_pose(
+        wag=math.sin(2 * TAU * t), breathe=0.8 * math.sin(TAU * t),
+        eyes_closed=blink(i, (11,)), ear=0.25 if i in (5, 6) else 0.0)),
+    "sit": seq(16, lambda t, i: sit_pose(
+        wag=0.6 * math.sin(2 * TAU * t), breathe=0.8 * math.sin(TAU * t),
+        eyes_closed=blink(i, (9,)), ear=-0.2 if i in (3, 4) else 0.0)),
+    "happy": seq(8, lambda t, i: sit_pose(
+        wag=1.6 * math.sin(2 * TAU * t), jaw=0.35, tongue=True, head=-0.1 + 0.05 * math.sin(2 * TAU * t))),
+    "hop": seq(8, lambda t, i: stand_pose(
+        wag=1.8 * math.sin(2 * TAU * t), jaw=0.3, tongue=True, head=-0.08,
+        lift=14 * max(0.0, math.sin(TAU * t)), ear=-0.3 * math.sin(TAU * t),
+        front_near=front(0.02 + 0.5 * max(0.0, math.sin(TAU * t)), -0.6 * max(0.0, math.sin(TAU * t))),
+        front_far=front(0.3 * max(0.0, math.sin(TAU * t)), -0.5 * max(0.0, math.sin(TAU * t))))),
+    "bark": [sit_pose(jaw=j, head=h, neck=-1.4, ear=e) for j, h, e in
+             ((0.05, -0.2, 0.0), (0.5, -0.3, -0.15), (0.6, -0.34, -0.2), (0.1, -0.22, 0.0))],
+    "lie": seq(8, lambda t, i: lie_pose(breathe=1.2 * math.sin(TAU * t), eyes_closed=blink(i, (6,)),
+                                         tail=3.0 + 0.08 * math.sin(TAU * t))),
+    "sleep": seq(8, lambda t, i: lie_pose(breathe=1.6 * math.sin(TAU * t), sleep=True)),
+    "sniff": seq(8, lambda t, i: sniff_pose(t)),
+    # Kopf schief legen, wenn Billy zuhört
+    "tilt": seq(8, lambda t, i: stand_pose(
+        head=-0.28 * math.sin(math.pi * min(1.0, t * 1.4)), neck=-1.05,
+        ear=-0.35 * math.sin(math.pi * min(1.0, t * 1.4)),
+        far_ear_tilt=0.2 * math.sin(math.pi * min(1.0, t * 1.4)), wag=0.3 * math.sin(2 * TAU * t))),
+    # Strecken und Gähnen nach dem Aufwachen
+    "stretch": keyframes([STAND, bow_pose(), bow_pose(jaw=0.75, eyes_closed=True, head=-0.15),
+                          bow_pose(), STAND], per=3),
+    # Übergänge zwischen Haltungen
+    "sitDown": transition(STAND, SIT),
+    "standUp": transition(SIT, STAND),
+    "lieDown": transition(SIT, LIE),
+    "getUp": transition(LIE, SIT),
+    # Datei aufnehmen und ablegen
+    "pick": keyframes([replace(SNIFF, jaw=0.0), replace(SNIFF, jaw=0.45), replace(SNIFF, jaw=0.22), CARRY], per=2),
+    "place": keyframes([CARRY, replace(SNIFF, jaw=0.22), replace(SNIFF, jaw=0.55), STAND], per=2),
+    # hängt beim Hochheben mit der Maus
+    "dangle": seq(4, lambda t, i: Pose(
+        hip=(112, 124), lift=34, body=0.08, neck=-1.0, head=-0.05, ground_snap=False, ear_tilt=-0.35,
+        jaw=0.25, tongue=True, tail=1.75 + 0.2 * math.sin(TAU * t), tail_curl=0.05,
+        front_near=front(0.12 * math.sin(TAU * t), 0.05), front_far=front(-0.1 * math.sin(TAU * t), 0.0),
+        hind_near=hind(0.15 - 0.12 * math.sin(TAU * t), -0.1, 0.05), hind_far=hind(0.1 + 0.1 * math.sin(TAU * t), -0.1, 0.0))),
 }
 
 
@@ -495,10 +631,13 @@ def main():
     for old in OUT_DIR.glob("*.png"):
         old.unlink()
     meta = {"frameSize": [W // 2, H // 2], "scale": 2, "groundY": GROUND / 2, "animations": {}}
-    for name, (count, fn) in ANIMATIONS.items():
+    only = set(sys.argv[1:])
+    for name, poses in ANIMATIONS.items():
+        if only and name not in only:
+            continue
         frames = []
-        for i in range(count):
-            img, anchors = render(fn(i / count))
+        for i, pose in enumerate(poses):
+            img, anchors = render(pose)
             fname = f"{name}_{i:02d}.png"
             img.save(OUT_DIR / fname, optimize=True)
             frames.append({
@@ -506,8 +645,9 @@ def main():
                 "anchors": {k: [round(v[0] / 2, 1), round(v[1] / 2, 1)] for k, v in anchors.items()},
             })
         meta["animations"][name] = frames
-        print(f"{name}: {count} Frames")
-    (OUT_DIR / "sprites.json").write_text(json.dumps(meta, indent=2) + "\n")
+        print(f"{name}: {len(frames)} Frames", flush=True)
+    if not only:
+        (OUT_DIR / "sprites.json").write_text(json.dumps(meta, indent=2) + "\n")
 
 
 if __name__ == "__main__":

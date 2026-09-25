@@ -12,7 +12,7 @@ final class Settings {
             "alwaysOnTop": true,
             "autonomous": true,
             "claudeModel": "claude-opus-5",
-            "skin": "drawn",
+            "skin": "auto",
         ])
     }
 
@@ -36,9 +36,9 @@ final class Settings {
         defaults.string(forKey: "claudeModel") ?? "claude-opus-5"
     }
 
-    /// "drawn" = mitgelieferte Zeichnung, "photo" = eigene Fotos aus dem Support-Ordner.
+    /// "auto" = Fotos, wenn vorhanden, sonst Zeichnung; "photo" = Fotos; "drawn" = Zeichnung.
     var skin: String {
-        get { defaults.string(forKey: "skin") ?? "drawn" }
+        get { defaults.string(forKey: "skin") ?? "auto" }
         set { defaults.set(newValue, forKey: "skin") }
     }
 
@@ -48,7 +48,7 @@ final class Settings {
         return base.appendingPathComponent("Billy Desktop", isDirectory: true)
     }
 
-    /// Ordner für eigene Foto-Sprites (erzeugt mit tools/photos/import_photos.py).
+    /// Ordner für eigene Foto-Sprites (erzeugt mit tools/photos/import_photos.py) – hat Vorrang vor den mitgelieferten.
     nonisolated static var photoSpritesDirectory: URL {
         supportDirectory.appendingPathComponent("Sprites", isDirectory: true)
     }

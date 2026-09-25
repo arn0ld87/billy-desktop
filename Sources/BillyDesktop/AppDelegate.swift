@@ -106,10 +106,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let skinMenu = NSMenu()
         let drawn = ActionItem("Gezeichnet") { [weak self] in self?.switchSkin("drawn") }
-        drawn.state = settings.skin == "drawn" ? .on : .off
+        drawn.state = SpriteLibrary.isShowingPhotos ? .off : .on
         skinMenu.addItem(drawn)
         let photo = ActionItem("Echte Fotos") { [weak self] in self?.switchSkin("photo") }
-        photo.state = settings.skin == "photo" ? .on : .off
+        photo.state = SpriteLibrary.isShowingPhotos ? .on : .off
         photo.isEnabled = SpriteLibrary.hasPhotoSkin
         skinMenu.addItem(photo)
         skinMenu.addItem(ActionItem("Foto-Ordner im Finder zeigen") {
@@ -196,6 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func openChat() {
         guard let pet else { return }
         chatPanel.show(near: pet.windowFrame)
+        pet.listen()
     }
 
     private func handleChat(_ text: String) {
@@ -258,7 +259,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .come:
             pet.interrupt()
             let mouse = NSEvent.mouseLocation
-            pet.enqueue([.walk(to: pet.clampToScreen(CGPoint(x: mouse.x, y: mouse.y - 40)), speed: 1.8)])
+            let target = pet.clampToScreen(CGPoint(x: mouse.x, y: mouse.y - 40))
+            let far = hypot(target.x - pet.position.x, target.y - pet.position.y) > 500
+            pet.enqueue([.walk(to: target, speed: far ? 2.8 : 1.6), .play(.tilt)])
             pet.rest(.sit)
         case .walk:
             pet.interrupt()
@@ -279,11 +282,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .play:
             pet.interrupt()
             Settings.shared.autonomous = true
-            pet.enqueue((0..<5).map { _ in .walk(to: pet.randomSpot(), speed: 2.4) } + [.pose(.happy, duration: 1.5)])
+            pet.enqueue((0..<5).map { _ in .walk(to: pet.randomSpot(), speed: 2.8) } + [.play(.stretch), .pose(.hop, duration: 1.2)])
             pet.rest(.stand)
         case .hello:
             pet.heart()
-            pet.enqueue([.pose(.happy, duration: 1.5)])
+            pet.enqueue([.pose(.hop, duration: 1.2)])
         case .help:
             pet.say(BillyReplies.helpText, seconds: 10)
         }

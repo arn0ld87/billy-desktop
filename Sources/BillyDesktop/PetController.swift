@@ -3,17 +3,27 @@ import BillyCore
 
 /// Ein Schritt in Billys Handlungskette.
 enum PetAction {
-    /// Laufen zu einem Fußpunkt (globale Bildschirmkoordinaten).
+    /// Laufen zu einem Fußpunkt (globale Bildschirmkoordinaten). Ab Tempo 2.2 galoppiert Billy.
     case walk(to: CGPoint, speed: CGFloat = 1, carry: Bool = false, faceLeftOnArrival: Bool? = nil)
-    /// Eine Pose für eine feste Dauer abspielen.
+    /// Eine Schleifen-Pose für eine feste Dauer abspielen.
     case pose(Animation, duration: TimeInterval)
+    /// Eine Einmal-Animation genau einmal abspielen.
+    case play(Animation)
     /// Sprechblase zeigen (sofort weiter).
     case say(String)
     /// Beliebiger Code (sofort weiter).
     case run(() -> Void)
+
+    var animation: Animation? {
+        switch self {
+        case let .walk(_, speed, carry, _): return carry ? .carry : (speed >= 2.2 ? .run : .walk)
+        case let .pose(anim, _), let .play(anim): return anim
+        case .say, .run: return nil
+        }
+    }
 }
 
-/// Steuert Billy: Position, Animation, Handlungskette und freies Herumstreunen.
+/// Steuert Billy: Position, Haltung, Animation, Handlungskette und freies Herumstreunen.
 @MainActor
 final class PetController: NSObject, PetViewDelegate {
     let window = PetWindow.make()
@@ -22,12 +32,15 @@ final class PetController: NSObject, PetViewDelegate {
 
     /// Fußpunkt in globalen Bildschirmkoordinaten.
     private(set) var position: CGPoint
+    private(set) var posture: Posture = .stand
     private var animation: Animation = .stand
     private var restAnimation: Animation = .stand
     private var animClock: Double = 0
     private var queue: [PetAction] = []
     private var current: PetAction?
     private var currentElapsed: TimeInterval = 0
+    /// Laufender Haltungswechsel (z. B. Hinsetzen).
+    private var transition: (anim: Animation, elapsed: TimeInterval, duration: TimeInterval, result: Posture)?
     private var nextIdleDecision = Date().addingTimeInterval(4)
     private var lastInteraction = Date()
     private var bubbleUntil: Date?
@@ -55,9 +68,10 @@ final class PetController: NSObject, PetViewDelegate {
         window.contentView = view
         applySettings()
         window.orderFrontRegardless()
-        timer = Timer.scheduledTimer(timeInterval: 1.0 / 30.0, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
+        timer = Timer.scheduledTimer(timeInterval: 1.0 / 60.0, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
         RunLoop.main.add(timer!, forMode: .common)
         say("Wuff! Ich bin Billy. 🐾")
+        enqueue([.play(.stretch)])
     }
 
     func applySettings() {
@@ -65,6 +79,7 @@ final class PetController: NSObject, PetViewDelegate {
         view.scale = scale
         view.frameSize = sprites.frameSize
         view.groundY = sprites.groundY
+        view.proceduralLife = sprites.needsProceduralBob
         window.setContentSize(PetView.windowSize(frameSize: sprites.frameSize, scale: scale))
         window.applyLevel(alwaysOnTop: Settings.shared.alwaysOnTop)
         updateWindowPosition()
@@ -83,7 +98,7 @@ final class PetController: NSObject, PetViewDelegate {
         lastInteraction = Date()
     }
 
-    /// Bricht alles ab, was Billy gerade tut.
+    /// Bricht alles ab, was Billy gerade tut (ein laufender Haltungswechsel darf zu Ende laufen).
     func interrupt() {
         queue.removeAll()
         current = nil
@@ -91,10 +106,23 @@ final class PetController: NSObject, PetViewDelegate {
         lastInteraction = Date()
     }
 
+    /// Ruhehaltung, in die Billy zurückkehrt, wenn nichts zu tun ist.
     func rest(_ animation: Animation) {
+        let wasSleeping = restAnimation == .sleep
         restAnimation = animation
         lastInteraction = Date()
         nextIdleDecision = Date().addingTimeInterval(.random(in: 10...20))
+        if wasSleeping, animation != .sleep, animation != .lie {
+            queue.insert(.play(.stretch), at: 0)
+        }
+    }
+
+    /// Billy hört zu (Chat geöffnet): zur Maus schauen und Kopf schief legen.
+    func listen() {
+        guard !isBusy else { return }
+        if restAnimation == .sleep { rest(.stand) }
+        view.facingLeft = NSEvent.mouseLocation.x < position.x
+        enqueue([.play(.tilt)])
     }
 
     func say(_ text: String, seconds: TimeInterval? = nil) {
@@ -135,7 +163,8 @@ final class PetController: NSObject, PetViewDelegate {
 
     /// Fußpunkt, bei dem der Anker (z. B. Maul) genau auf `target` liegt.
     func feetPoint(placing anchor: String, of animation: Animation, at target: CGPoint, faceLeft: Bool) -> CGPoint {
-        guard let frame = sprites.frames(animation).first else { return target }
+        let frames = sprites.frames(animation)
+        guard let frame = frames.last else { return target }
         let scale = view.scale
         let a = frame.anchor(anchor)
         let dx = (a.x - sprites.frameSize.width / 2) * scale * (faceLeft ? -1 : 1)
@@ -150,7 +179,7 @@ final class PetController: NSObject, PetViewDelegate {
         let dt = min(0.1, now.timeIntervalSince(lastTick))
         lastTick = now
         animClock += dt
-        view.tick &+= 1
+        view.time += dt
 
         if !dragging { advance(dt: dt) }
         if let until = bubbleUntil, now > until { view.bubbleText = nil; bubbleUntil = nil }
@@ -160,10 +189,38 @@ final class PetController: NSObject, PetViewDelegate {
     }
 
     private func advance(dt: TimeInterval) {
-        if current == nil, !queue.isEmpty {
-            current = queue.removeFirst()
-            currentElapsed = 0
+        // 1. Laufender Haltungswechsel hat Vorrang.
+        if var t = transition {
+            t.elapsed += dt
+            setAnimation(t.anim)
+            if t.elapsed >= t.duration {
+                posture = t.result
+                transition = nil
+            } else {
+                transition = t
+            }
+            return
         }
+
+        // 2. Sofort-Aktionen (Sprechen, Code) abarbeiten.
+        while current == nil, !queue.isEmpty {
+            let next = queue.removeFirst()
+            switch next {
+            case let .say(text): say(text)
+            case let .run(block): block()
+            default:
+                current = next
+                currentElapsed = 0
+            }
+        }
+
+        // 3. Passt die Haltung? Sonst erst aufstehen, hinsetzen oder hinlegen.
+        let desired = current?.animation ?? restAnimation
+        if let need = desired.posture, need != posture {
+            beginTransition(toward: need)
+            return
+        }
+
         guard let action = current else {
             setAnimation(restAnimation)
             idleBehaviour()
@@ -171,13 +228,14 @@ final class PetController: NSObject, PetViewDelegate {
         }
         currentElapsed += dt
         switch action {
-        case let .walk(target, speed, carry, faceLeftOnArrival):
-            let pxPerSecond = 120 * view.scale * speed
+        case let .walk(target, speed, _, faceLeftOnArrival):
             let dx = target.x - position.x, dy = target.y - position.y
             let dist = hypot(dx, dy)
-            setAnimation(carry ? .carry : .walk)
+            setAnimation(action.animation ?? .walk)
             if abs(dx) > 1 { view.facingLeft = dx < 0 }
-            let step = pxPerSecond * dt
+            // sanft anlaufen und abbremsen
+            let ramp = min(1, 0.35 + currentElapsed / 0.3) * min(1, max(0.45, dist / (40 * view.scale)))
+            let step = 120 * view.scale * speed * ramp * dt
             if dist <= step {
                 position = target
                 if let face = faceLeftOnArrival { view.facingLeft = face }
@@ -190,13 +248,36 @@ final class PetController: NSObject, PetViewDelegate {
         case let .pose(anim, duration):
             setAnimation(anim)
             if currentElapsed >= duration { finishAction() }
-        case let .say(text):
-            say(text)
+        case let .play(anim):
+            setAnimation(anim)
+            if anim == .place, view.carriedIcon != nil, currentElapsed >= sprites.duration(of: .place) * 0.6 {
+                view.dropCarriedIcon()
+            }
+            if currentElapsed >= sprites.duration(of: anim) {
+                if anim == .place { view.dropCarriedIcon() }
+                finishAction()
+            }
+        case .say, .run:
             finishAction()
-        case let .run(block):
-            finishAction()
-            block()
         }
+    }
+
+    private func beginTransition(toward target: Posture) {
+        let step: (Animation, Posture)
+        switch (posture, target) {
+        case (.stand, _): step = (.sitDown, .sit)
+        case (.sit, .stand): step = (.standUp, .stand)
+        case (.sit, _): step = (.lieDown, .lie)
+        case (.lie, _): step = (.getUp, .sit)
+        }
+        let duration = sprites.has(step.0) ? sprites.duration(of: step.0) : 0
+        if duration <= 0 {
+            posture = step.1          // Foto-Sets ohne Übergang: weich überblenden
+            view.crossfade()
+            return
+        }
+        transition = (step.0, 0, duration, step.1)
+        setAnimation(step.0)
     }
 
     private func finishAction() {
@@ -205,10 +286,10 @@ final class PetController: NSObject, PetViewDelegate {
     }
 
     private func setAnimation(_ anim: Animation) {
-        if anim != animation {
-            animation = anim
-            animClock = 0
-        }
+        guard anim != animation else { return }
+        view.crossfade()
+        animation = anim
+        animClock = 0
     }
 
     /// Freies Verhalten, wenn nichts in der Warteschlange steht.
@@ -218,19 +299,39 @@ final class PetController: NSObject, PetViewDelegate {
             restAnimation = .sleep
             return
         }
-        guard autonomous, now >= nextIdleDecision, restAnimation != .sleep else { return }
-        nextIdleDecision = now.addingTimeInterval(.random(in: 6...16))
-        switch Int.random(in: 0..<10) {
+        guard restAnimation != .sleep else { return }
+
+        // Maus in der Nähe? Billy schaut hin.
+        let mouse = NSEvent.mouseLocation
+        let mouseNear = hypot(mouse.x - position.x, mouse.y - position.y) < 260 * view.scale
+        if mouseNear, abs(mouse.x - position.x) > 25 {
+            view.facingLeft = mouse.x < position.x
+        }
+
+        guard autonomous, now >= nextIdleDecision else { return }
+        nextIdleDecision = now.addingTimeInterval(.random(in: 6...14))
+        if mouseNear, Int.random(in: 0..<3) == 0 {
+            enqueue([.play(.tilt)])
+            lastInteraction = now.addingTimeInterval(-60)
+            return
+        }
+        switch Int.random(in: 0..<12) {
         case 0...3:
             restAnimation = .stand
             enqueue([.walk(to: randomSpot())])
             lastInteraction = now.addingTimeInterval(-60)
-        case 4...5:
+        case 4:
+            restAnimation = .stand
+            enqueue([.walk(to: randomSpot(), speed: 2.6), .play(.stretch)])
+            lastInteraction = now.addingTimeInterval(-60)
+        case 5...6:
             restAnimation = .sit
-        case 6:
-            restAnimation = .lie
         case 7:
+            restAnimation = .lie
+        case 8:
             enqueue([.pose(.sniff, duration: 2.5)])
+        case 9:
+            enqueue([.play(.stretch)])
         default:
             restAnimation = .stand
         }
@@ -239,14 +340,9 @@ final class PetController: NSObject, PetViewDelegate {
     private func render() {
         let frames = sprites.frames(animation)
         guard !frames.isEmpty else { return }
-        let index = Int(animClock * animation.fps) % frames.count
-        view.spriteFrame = frames[index]
-        view.sleeping = animation == .sleep
-        if sprites.needsProceduralBob, animation == .walk || animation == .carry {
-            view.bob = abs(sin(animClock * 10)) * 4 * view.scale
-        } else {
-            view.bob = 0
-        }
+        let raw = Int(animClock * animation.fps)
+        let index = animation.isOneShot || transition != nil ? min(raw, frames.count - 1) : raw % frames.count
+        view.setFrame(frames[index], animation: animation)
         view.needsDisplay = true
     }
 
@@ -276,20 +372,21 @@ final class PetController: NSObject, PetViewDelegate {
             return
         }
         if restAnimation == .sleep {
-            restAnimation = .stand
+            rest(.stand)
             say("Hm? Ich bin wach! 🐶")
             return
         }
         guard !isBusy else { return }
         heart()
-        enqueue([.pose(.happy, duration: 1.2)])
+        enqueue([posture == .stand ? .pose(.hop, duration: 1.2) : .pose(.happy, duration: 1.4)])
         say(["Wuff! ❤️", "Kraulen! 🥰", "Nochmal!", "Hihi, das kitzelt!"].randomElement()!)
     }
 
     func petViewDragged(_ view: PetView, by delta: CGPoint) {
         if !dragging {
             dragging = true
-            setAnimation(.happy)
+            transition = nil
+            setAnimation(.dangle)
         }
         position = CGPoint(x: position.x + delta.x, y: position.y + delta.y)
         updateWindowPosition()
@@ -297,9 +394,12 @@ final class PetController: NSObject, PetViewDelegate {
 
     func petViewDragEnded(_ view: PetView) {
         dragging = false
+        posture = .stand
         position = clampToScreen(position)
         updateWindowPosition()
+        view.bounce()
         lastInteraction = Date()
+        if restAnimation == .sleep || restAnimation == .lie { restAnimation = .stand }
         say(["Huch!", "Wo bin ich? 🐾", "Nochmal fliegen!"].randomElement()!)
     }
 
