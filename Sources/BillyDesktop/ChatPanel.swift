@@ -91,7 +91,9 @@ final class ChatPanel: NSPanel {
         isMovableByWindowBackground = true
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let hosting = NSHostingView(rootView: ChatView(model: model))
-        hosting.sizingOptions = [.preferredContentSize]
+        // Eigene Größe melden: sonst ist fittingSize 0×0 und die Leiste unsichtbar.
+        // min/max lassen das Fenster mitwachsen, wenn Billys Antwort erscheint.
+        hosting.sizingOptions = [.intrinsicContentSize, .minSize, .maxSize]
         contentView = hosting
     }
 
@@ -99,7 +101,11 @@ final class ChatPanel: NSPanel {
 
     /// Zeigt die Leiste über (oder unter) Billy.
     func show(near petFrame: CGRect) {
-        let size = contentView?.fittingSize ?? frame.size
+        contentView?.layoutSubtreeIfNeeded()
+        var size = contentView?.fittingSize ?? .zero
+        if size.width < 200 || size.height < 60 {
+            size = CGSize(width: 436, height: 120)   // Rückfall, falls SwiftUI noch keine Größe kennt
+        }
         setContentSize(size)
         let screen = (NSScreen.screens.first { $0.frame.intersects(petFrame) } ?? NSScreen.main)?.visibleFrame
             ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
