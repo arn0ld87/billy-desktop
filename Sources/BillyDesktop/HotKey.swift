@@ -5,6 +5,8 @@ final class HotKey {
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
     private let action: () -> Void
+    /// Hat macOS das Kürzel angenommen? (Scheitert, wenn eine andere App es schon belegt.)
+    private(set) var isRegistered = false
 
     init(keyCode: UInt32, modifiers: UInt32, action: @escaping () -> Void) {
         self.action = action
@@ -16,7 +18,7 @@ final class HotKey {
             return noErr
         }, 1, &spec, context, &handlerRef)
         let id = EventHotKeyID(signature: OSType(0x4249_4C59), id: 1) // 'BILY'
-        RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &hotKeyRef)
+        isRegistered = RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &hotKeyRef) == noErr
     }
 
     deinit {

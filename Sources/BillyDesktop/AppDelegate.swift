@@ -41,6 +41,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotKey = HotKey.billyDefault { [weak self] in
             Task { @MainActor in self?.toggleChat() }
         }
+
+        if CommandLine.arguments.contains("--selftest") {
+            Task { @MainActor in await self.runSelfTest() }
+        }
+    }
+
+    /// Startet die echte App, öffnet „Frag Billy“ und prüft, ob die Leiste sichtbar ist (für die CI).
+    private func runSelfTest() async {
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        openChat()
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        let chat = chatPanel.frame
+        let petVisible = pet?.window.isVisible ?? false
+        let chatOK = chatPanel.isVisible && chat.width >= 200 && chat.height >= 60
+        print("SELFTEST pet.visible=\(petVisible) chat.visible=\(chatPanel.isVisible) chat.frame=\(chat) "
+              + "hotkey.registered=\(hotKey?.isRegistered ?? false)")
+        exit(petVisible && chatOK ? 0 : 1)
     }
 
     // MARK: Menü

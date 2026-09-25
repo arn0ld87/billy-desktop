@@ -24,6 +24,10 @@ jobs:
       - name: App bauen
         run: ./scripts/build-app.sh
 
+      - name: Selbsttest (App starten, „Frag Billy“ öffnen)
+        timeout-minutes: 2
+        run: '"build/Billy Desktop.app/Contents/MacOS/BillyDesktop" --selftest'
+
       - name: App packen
         run: ditto -c -k --keepParent "build/Billy Desktop.app" build/Billy-Desktop.zip
 
