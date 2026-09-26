@@ -33,6 +33,9 @@ public struct UndoResult: Equatable, Sendable {
 public final class TidyExecutor {
     private let fileManager: FileManager
     public private(set) var journal: TidyJournal
+    /// Wird nach jeder gelungenen Verschiebung aufgerufen – zum sofortigen Sichern des Journals,
+    /// damit Rückgängig auch nach Abbruch oder Absturz mitten im Aufräumen funktioniert.
+    public var onRecord: ((TidyJournal) -> Void)?
 
     public init(fileManager: FileManager = .default, date: Date = Date()) {
         self.fileManager = fileManager
@@ -59,6 +62,7 @@ public final class TidyExecutor {
         }
         try fileManager.moveItem(at: move.source, to: target)
         journal.records.append(.init(source: move.source, destination: target))
+        onRecord?(journal)
         return target
     }
 
