@@ -13,6 +13,7 @@ jeder Datei, trägt sie im Maul zum passenden Ordner und legt sie dort ab.
 | Rückgängig | „Rückgängig“ oder Menü → *Aufräumen rückgängig machen* |
 | Kommandos | Sitz, Platz, Schlaf, Komm, Gassi, Gib Laut, Leckerli, Bleib, Spiel, Hilfe |
 | Kraulen / Tragen | Billy anklicken bzw. mit der Maus ziehen |
+| Ton (bellen, hecheln, schnarchen …) | Menüleiste 🐾 → *Ton* · Geräusche einrichten: [docs/BILLY-TON.md](docs/BILLY-TON.md) · still während Calls |
 | Echte Fotos statt Zeichnung | PNGs nach `photos/` → `make photos-bundle` · [docs/BILLY-FOTOS.md](docs/BILLY-FOTOS.md) |
 | Animationen | laufen, Galopp (Zoomies), sitzen/hinlegen mit Übergängen, strecken & gähnen, Kopf schief legen, Datei aufnehmen/ablegen, zappeln beim Hochheben |
 | Freie Fragen (optional) | Menü → *KI-Chat* → Gemini- oder Claude-Schlüssel hinterlegen |
@@ -107,6 +108,7 @@ make photos PHOTOS=~/Pictures/Billy-Fotos   # eigene Fotos importieren
 | `tools/photos/split_sheet.py` | zerlegt ein Übersichtsbild mit mehreren Posen in Einzelbilder |
 | `photos/` → `Resources/PhotoSprites` | Rohbilder → mitgeliefertes Foto-Aussehen |
 | `tools/icon/make_icon.py` | App-Icon aus einem Foto |
+| `sounds/` → `Resources/Sounds` | CC0-Rohgeräusche → mitgelieferter Ton (`tools/sounds/import_sounds.py`, braucht ffmpeg) |
 
 ## Nächste Schritte
 

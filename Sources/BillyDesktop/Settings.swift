@@ -1,4 +1,5 @@
 import AppKit
+import BillyCore
 
 /// Persistente Einstellungen (UserDefaults).
 @MainActor
@@ -14,7 +15,21 @@ final class Settings {
             "claudeModel": "claude-opus-5",
             "geminiModel": "gemini-3.5-flash-lite",
             "skin": "auto",
+            "soundLevel": SoundLevel.lively.rawValue,
+            "soundVolume": 0.6,
         ])
+    }
+
+    /// Wie gesprächig Billy ist (Standard: „Lebendig“, Eigeninitiative gedämpft und selten).
+    var soundLevel: SoundLevel {
+        get { SoundLevel(rawValue: defaults.string(forKey: "soundLevel") ?? "") ?? .lively }
+        set { defaults.set(newValue.rawValue, forKey: "soundLevel") }
+    }
+
+    /// Grundlautstärke 0…1.
+    var soundVolume: Double {
+        get { defaults.double(forKey: "soundVolume") }
+        set { defaults.set(min(1, max(0, newValue)), forKey: "soundVolume") }
     }
 
     var scale: CGFloat {
@@ -57,5 +72,10 @@ final class Settings {
     /// Ordner für eigene Foto-Sprites (erzeugt mit tools/photos/import_photos.py) – hat Vorrang vor den mitgelieferten.
     nonisolated static var photoSpritesDirectory: URL {
         supportDirectory.appendingPathComponent("Sprites", isDirectory: true)
+    }
+
+    /// Ordner für eigene Geräusche – haben je Geräusch Vorrang vor den mitgelieferten.
+    nonisolated static var soundsDirectory: URL {
+        supportDirectory.appendingPathComponent("Sounds", isDirectory: true)
     }
 }
