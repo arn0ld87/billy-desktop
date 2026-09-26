@@ -51,6 +51,8 @@ final class PetController: NSObject, PetViewDelegate {
 
     var onDoubleClick: (() -> Void)?
     var menuProvider: (() -> NSMenu?)?
+    /// Meldet `interrupt()` – z. B. damit ein laufendes Aufräumen sauber abbricht.
+    var onInterrupt: (() -> Void)?
 
     var autonomous: Bool {
         get { Settings.shared.autonomous }
@@ -104,6 +106,7 @@ final class PetController: NSObject, PetViewDelegate {
         current = nil
         view.carriedIcon = nil
         lastInteraction = Date()
+        onInterrupt?()
     }
 
     /// Ruhehaltung, in die Billy zurückkehrt, wenn nichts zu tun ist.

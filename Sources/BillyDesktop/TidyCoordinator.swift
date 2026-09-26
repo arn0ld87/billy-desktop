@@ -71,6 +71,10 @@ final class TidyCoordinator {
         isRunning = true
         pet.interrupt()
         let executor = TidyExecutor(fileManager: fileManager)
+        // Journal nach jeder Datei sichern: Rückgängig klappt auch nach Abbruch oder Absturz.
+        executor.onRecord = { [journalStore] in try? journalStore.save($0) }
+        // Ein neues Kommando (Sitz, Komm …) leert Billys Warteschlange – dann sauber abbrechen.
+        pet.onInterrupt = { [weak self] in self?.cancel(executor) }
 
         // Ordner zuerst anlegen und – falls der Finder mitspielt – in eine Spalte stellen.
         var folderSpots: [URL: CGPoint] = [:]
@@ -110,12 +114,30 @@ final class TidyCoordinator {
             guard let self else { return }
             try? self.journalStore.save(executor.journal)
             self.isRunning = false
+            pet?.onInterrupt = nil
             pet?.heart()
             pet?.say(BillyReplies.tidySummary(moved: executor.journal.records.count))
         })
         actions.append(.pose(.hop, duration: 1.6))
         pet.rest(.sit)
         pet.enqueue(actions)
+    }
+
+    /// Aufräumen wurde unterbrochen: Bisheriges bleibt (und ist rückgängig machbar), der Rest bleibt liegen.
+    private func cancel(_ executor: TidyExecutor) {
+        guard isRunning else { return }
+        isRunning = false
+        pet?.onInterrupt = nil
+        let moved = executor.journal.records.count
+        if moved == 0 {
+            // Nichts verschoben: frisch angelegte, leere Ordner wieder wegräumen.
+            _ = TidyExecutor.undo(executor.journal, fileManager: fileManager)
+        }
+        switch moved {
+        case 0: pet?.say("Okay, Aufräumen abgebrochen. 🐾")
+        case 1: pet?.say("Aufräumen abgebrochen – 1 Datei hab ich schon sortiert.")
+        default: pet?.say("Aufräumen abgebrochen – \(moved) Dateien hab ich schon sortiert.")
+        }
     }
 
     /// Hinlaufen, schnüffeln, aufheben (= verschieben), zum Ordner tragen, ablegen.

@@ -103,6 +103,25 @@ final class TidyTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: desktop.appendingPathComponent("Dokumente/Eigenes.pdf").path))
     }
 
+    func testJournalIsSavedAfterEveryMoveSoPartialRunsCanBeUndone() throws {
+        try touch("Brief.docx", "b")
+        try touch("Song.mp3", "c")
+        let plan = TidyPlanner.plan(items: try items(), desktop: desktop) { self.fm.fileExists(atPath: $0.path) }
+        let store = JournalStore(url: desktop.deletingLastPathComponent().appendingPathComponent("journal.json"))
+        let executor = TidyExecutor(fileManager: fm)
+        executor.onRecord = { try? store.save($0) }
+
+        // Abbruch nach der ersten Datei: Das Journal liegt trotzdem schon auf der Platte.
+        try executor.perform(plan.moves[0])
+        let saved = try XCTUnwrap(store.load())
+        XCTAssertEqual(saved.records.count, 1)
+        XCTAssertEqual(saved.createdFolders.count, 1)
+
+        let result = TidyExecutor.undo(saved, fileManager: fm)
+        XCTAssertEqual(result.restored, 1)
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: desktop.path).sorted(), ["Brief.docx", "Song.mp3"])
+    }
+
     func testPerformThrowsWhenSourceVanished() throws {
         try touch("Weg.txt")
         let plan = TidyPlanner.plan(items: try items(), desktop: desktop) { self.fm.fileExists(atPath: $0.path) }
