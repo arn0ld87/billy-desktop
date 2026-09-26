@@ -43,6 +43,8 @@ final class PetController: NSObject, PetViewDelegate {
     private var transition: (anim: Animation, elapsed: TimeInterval, duration: TimeInterval, result: Posture)?
     private var nextIdleDecision = Date().addingTimeInterval(4)
     private var lastInteraction = Date()
+    /// Stammt die aktuelle Handlungskette aus Billys freiem Verhalten (nicht von dir)?
+    private var idleDriven = false
     private var bubbleUntil: Date?
     private var heartUntil: Date?
     private var dragging = false
@@ -50,6 +52,8 @@ final class PetController: NSObject, PetViewDelegate {
     private var lastTick = Date()
 
     var onDoubleClick: (() -> Void)?
+    /// Eine neue Animation beginnt; `isReaction` = Billy reagiert gerade auf dich (für den Ton).
+    var onAnimationStart: ((Animation, _ isReaction: Bool) -> Void)?
     var menuProvider: (() -> NSMenu?)?
 
     var autonomous: Bool {
@@ -96,6 +100,18 @@ final class PetController: NSObject, PetViewDelegate {
     func enqueue(_ actions: [PetAction]) {
         queue.append(contentsOf: actions)
         lastInteraction = Date()
+        idleDriven = false
+    }
+
+    /// Wie `enqueue`, aber aus freiem Verhalten – zählt für den Ton als Eigeninitiative.
+    private func enqueueIdle(_ actions: [PetAction]) {
+        enqueue(actions)
+        idleDriven = true
+    }
+
+    /// Billy reagiert auf dich, wenn du ihn gerade angesprochen hast oder er deinen Auftrag abarbeitet.
+    private var isReaction: Bool {
+        !idleDriven && (Date().timeIntervalSince(lastInteraction) < 3 || current != nil)
     }
 
     /// Bricht alles ab, was Billy gerade tut (ein laufender Haltungswechsel darf zu Ende laufen).
@@ -104,6 +120,7 @@ final class PetController: NSObject, PetViewDelegate {
         current = nil
         view.carriedIcon = nil
         lastInteraction = Date()
+        idleDriven = false
     }
 
     /// Ruhehaltung, in die Billy zurückkehrt, wenn nichts zu tun ist.
@@ -111,6 +128,7 @@ final class PetController: NSObject, PetViewDelegate {
         let wasSleeping = restAnimation == .sleep
         restAnimation = animation
         lastInteraction = Date()
+        idleDriven = false
         nextIdleDecision = Date().addingTimeInterval(.random(in: 10...20))
         if wasSleeping, animation != .sleep, animation != .lie {
             queue.insert(.play(.stretch), at: 0)
@@ -290,6 +308,7 @@ final class PetController: NSObject, PetViewDelegate {
         view.crossfade()
         animation = anim
         animClock = 0
+        onAnimationStart?(anim, isReaction)
     }
 
     /// Freies Verhalten, wenn nichts in der Warteschlange steht.
@@ -311,27 +330,27 @@ final class PetController: NSObject, PetViewDelegate {
         guard autonomous, now >= nextIdleDecision else { return }
         nextIdleDecision = now.addingTimeInterval(.random(in: 6...14))
         if mouseNear, Int.random(in: 0..<3) == 0 {
-            enqueue([.play(.tilt)])
+            enqueueIdle([.play(.tilt)])
             lastInteraction = now.addingTimeInterval(-60)
             return
         }
         switch Int.random(in: 0..<12) {
         case 0...3:
             restAnimation = .stand
-            enqueue([.walk(to: randomSpot())])
+            enqueueIdle([.walk(to: randomSpot())])
             lastInteraction = now.addingTimeInterval(-60)
         case 4:
             restAnimation = .stand
-            enqueue([.walk(to: randomSpot(), speed: 2.6), .play(.stretch)])
+            enqueueIdle([.walk(to: randomSpot(), speed: 2.6), .play(.stretch)])
             lastInteraction = now.addingTimeInterval(-60)
         case 5...6:
             restAnimation = .sit
         case 7:
             restAnimation = .lie
         case 8:
-            enqueue([.pose(.sniff, duration: 2.5)])
+            enqueueIdle([.pose(.sniff, duration: 2.5)])
         case 9:
-            enqueue([.play(.stretch)])
+            enqueueIdle([.play(.stretch)])
         default:
             restAnimation = .stand
         }
@@ -394,6 +413,8 @@ final class PetController: NSObject, PetViewDelegate {
         if !dragging {
             dragging = true
             transition = nil
+            lastInteraction = Date()
+            idleDriven = false
             setAnimation(.dangle)
         }
         position = CGPoint(x: position.x + delta.x, y: position.y + delta.y)

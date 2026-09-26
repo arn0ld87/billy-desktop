@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var pet: PetController?
     private var tidy: TidyCoordinator?
+    private lazy var sound = SoundPlayer()
     private let chatModel = ChatModel()
     private lazy var chatPanel = ChatPanel(model: chatModel)
     private var hotKey: HotKey?
@@ -26,6 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let pet = PetController(sprites: sprites)
         pet.onDoubleClick = { [weak self] in self?.openChat() }
         pet.menuProvider = { [weak self] in self?.buildMenu() }
+        pet.onAnimationStart = { [weak self] animation, isReaction in
+            guard let event = SoundPlayer.event(for: animation) else { return }
+            self?.sound.play(event, isReaction: isReaction)
+        }
         self.pet = pet
         tidy = TidyCoordinator(pet: pet)
 
@@ -155,6 +160,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let sizeItem = NSMenuItem(title: "Größe", action: nil, keyEquivalent: "")
         sizeItem.submenu = sizeMenu
         menu.addItem(sizeItem)
+
+        let soundMenu = NSMenu()
+        for (title, level) in [("Aus", SoundLevel.off), ("Nur Reaktionen", .reactions), ("Lebendig", .lively)] {
+            let item = ActionItem(title) { [weak self] in
+                settings.soundLevel = level
+                self?.sound.applySettings()
+            }
+            item.state = settings.soundLevel == level ? .on : .off
+            soundMenu.addItem(item)
+        }
+        soundMenu.addItem(.separator())
+        soundMenu.addItem(SliderItem(title: "Lautstärke", value: settings.soundVolume) { [weak self] value in
+            settings.soundVolume = value
+            self?.sound.applySettings()
+        })
+        if !sound.hasSounds {
+            let hint = NSMenuItem(title: "Keine Geräusche installiert – siehe docs/BILLY-TON.md", action: nil, keyEquivalent: "")
+            hint.isEnabled = false
+            soundMenu.addItem(hint)
+        }
+        soundMenu.addItem(ActionItem("Geräusche-Ordner im Finder zeigen") { [weak self] in
+            try? FileManager.default.createDirectory(at: Settings.soundsDirectory, withIntermediateDirectories: true)
+            NSWorkspace.shared.activateFileViewerSelecting([Settings.soundsDirectory])
+            self?.sound.reload()
+        })
+        let soundItem = NSMenuItem(title: "Ton", action: nil, keyEquivalent: "")
+        soundItem.submenu = soundMenu
+        menu.addItem(soundItem)
 
         let skinMenu = NSMenu()
         let drawn = ActionItem("Gezeichnet") { [weak self] in self?.switchSkin("drawn") }
@@ -377,5 +410,34 @@ final class ActionItem: NSMenuItem {
 
     @objc private func fire() {
         handler()
+    }
+}
+
+/// Menüeintrag mit Schieberegler (0…1), z. B. für die Lautstärke.
+final class SliderItem: NSMenuItem {
+    private let onChange: (Double) -> Void
+
+    init(title: String, value: Double, onChange: @escaping (Double) -> Void) {
+        self.onChange = onChange
+        super.init(title: title, action: nil, keyEquivalent: "")
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 220, height: 30))
+        let label = NSTextField(labelWithString: title)
+        label.font = .menuFont(ofSize: 0)
+        label.frame = CGRect(x: 20, y: 6, width: 80, height: 18)
+        let slider = NSSlider(value: value, minValue: 0, maxValue: 1, target: nil, action: nil)
+        slider.frame = CGRect(x: 100, y: 5, width: 108, height: 20)
+        slider.target = self
+        slider.action = #selector(changed(_:))
+        container.addSubview(label)
+        container.addSubview(slider)
+        view = container
+    }
+
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) wird nicht unterstützt")
+    }
+
+    @objc private func changed(_ sender: NSSlider) {
+        onChange(sender.doubleValue)
     }
 }

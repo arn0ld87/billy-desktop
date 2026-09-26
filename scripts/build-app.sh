@@ -26,6 +26,9 @@ cp -R Resources/Sprites "$APP/Contents/Resources/Sprites"
 if [[ -f Resources/PhotoSprites/sprites.json ]]; then
   cp -R Resources/PhotoSprites "$APP/Contents/Resources/PhotoSprites"
 fi
+if [[ -d Resources/Sounds ]]; then
+  cp -R Resources/Sounds "$APP/Contents/Resources/Sounds"
+fi
 iconutil -c icns Resources/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
