@@ -55,6 +55,8 @@ final class PetController: NSObject, PetViewDelegate {
     /// Eine neue Animation beginnt; `isReaction` = Billy reagiert gerade auf dich (für den Ton).
     var onAnimationStart: ((Animation, _ isReaction: Bool) -> Void)?
     var menuProvider: (() -> NSMenu?)?
+    /// Meldet `interrupt()` – z. B. damit ein laufendes Aufräumen sauber abbricht.
+    var onInterrupt: (() -> Void)?
 
     var autonomous: Bool {
         get { Settings.shared.autonomous }
@@ -121,6 +123,7 @@ final class PetController: NSObject, PetViewDelegate {
         view.carriedIcon = nil
         lastInteraction = Date()
         idleDriven = false
+        onInterrupt?()
     }
 
     /// Ruhehaltung, in die Billy zurückkehrt, wenn nichts zu tun ist.
